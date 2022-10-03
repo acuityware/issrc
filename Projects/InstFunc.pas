@@ -2,7 +2,7 @@ unit InstFunc;
 
 {
   Inno Setup
-  Copyright (C) 1997-2019 Jordan Russell
+  Copyright (C) 1997-2020 Jordan Russell
   Portions by Martijn Laan
   For conditions of distribution and use, see LICENSE.TXT.
 
@@ -64,7 +64,7 @@ function DetermineDefaultLanguage(const GetLanguageEntryProc: TGetLanguageEntryP
   var ResultIndex: Integer): TDetermineDefaultLanguageResult;
 procedure EnumFileReplaceOperationsFilenames(const EnumFunc: TEnumFROFilenamesProc;
   Param: Pointer);
-function GenerateNonRandomUniqueFilename(Path: String; var Filename: String): Boolean;
+function GenerateNonRandomUniqueTempDir(Path: String; var TempDir: String): Boolean;
 function GenerateUniqueName(const DisableFsRedir: Boolean; Path: String;
   const Extension: String): String;
 function GetComputerNameString: String;
@@ -79,6 +79,11 @@ function GetSHA1OfFile(const DisableFsRedir: Boolean; const Filename: String): T
 function GetSHA1OfAnsiString(const S: AnsiString): TSHA1Digest;
 {$IFDEF UNICODE}
 function GetSHA1OfUnicodeString(const S: UnicodeString): TSHA1Digest;
+{$ENDIF}
+function GetSHA256OfFile(const DisableFsRedir: Boolean; const Filename: String): String;
+function GetSHA256OfAnsiString(const S: AnsiString): String;
+{$IFDEF UNICODE}
+function GetSHA256OfUnicodeString(const S: UnicodeString): String;
 {$ENDIF}
 function GetRegRootKeyName(const RootKey: HKEY): String;
 function GetSpaceOnDisk(const DisableFsRedir: Boolean; const DriveRoot: String;
@@ -106,7 +111,7 @@ procedure RaiseOleError(const FunctionName: String; const ResultCode: HRESULT);
 procedure RefreshEnvironment;
 function ReplaceSystemDirWithSysWow64(const Path: String): String;
 function ReplaceSystemDirWithSysNative(Path: String; const IsWin64: Boolean): String;
-procedure UnregisterFont(const FontName, FontFilename: String);
+procedure UnregisterFont(const FontName, FontFilename: String; const PerUserFont: Boolean);
 function RestartComputer: Boolean;
 procedure RestartReplace(const DisableFsRedir: Boolean; TempFile, DestFile: String);
 procedure SplitNewParamStr(const Index: Integer; var AName, AValue: String);
@@ -117,7 +122,7 @@ function ForceDirectories(const DisableFsRedir: Boolean; Dir: String): Boolean;
 implementation
 
 uses
-  Messages, ShellApi, PathFunc, Msgs, MsgIDs, FileClass, RedirFunc, SetupTypes;
+  Messages, ShellApi, PathFunc, Msgs, MsgIDs, FileClass, RedirFunc, SetupTypes, Hash, Classes;
 
 procedure InternalError(const Id: String);
 begin
@@ -169,6 +174,62 @@ begin
   end;
 end;
 
+function ConvertStringSecurityDescriptorToSecurityDescriptorW(
+  StringSecurityDescriptor: PWideChar;
+  StringSDRevision: DWORD; var ppSecurityDescriptor: Pointer;
+  dummy: Pointer): BOOL; stdcall; external advapi32;
+
+function CreateSafeDirectory(Path: PWideChar; var ErrorCode: DWORD): Boolean;
+{ Creates a protected directory if it's a subdirectory of c:\WINDOWS\TEMP,
+  otherwise creates a normal directory. }
+const
+  SDDL_REVISION_1 = 1;
+var
+  CurrentUserSid, StringSecurityDescriptor: String;
+  pSecurityDescriptor: Pointer;
+  SecurityAttr: TSecurityAttributes;
+begin
+  if Pos(PathLowercase(AddBackslash(GetSystemWinDir) + 'TEMP\'),
+     PathLowercase(PathExpand(Path))) <> 1 then begin
+    Result := CreateDirectoryW(Path, nil);
+    if not Result then
+      ErrorCode := GetLastError;
+    Exit;
+  end;
+  CurrentUserSid := GetCurrentUserSid;
+  if CurrentUserSid = '' then
+    CurrentUserSid := 'OW'; // OW: owner rights
+  StringSecurityDescriptor :=
+    // D: adds a Discretionary ACL ("DACL", i.e. access control via SIDs)
+    // P: prevents DACL from being modified by inherited ACLs
+    'D:P' +
+    // A: "allow"
+    // OICI: "object and container inherit",
+    //    i.e. files and directories created within the new directory
+    //    inherit these permissions
+    // 0x001F01FF: corresponds to `FILE_ALL_ACCESS`
+    '(A;OICI;0x001F01FF;;;' + CurrentUserSid + ')' + // current user
+    '(A;OICI;0x001F01FF;;;BA)' + // BA: built-in administrator
+    '(A;OICI;0x001F01FF;;;SY)'; // SY: local SYSTEM account
+  if not ConvertStringSecurityDescriptorToSecurityDescriptorW(
+    PWideChar(StringSecurityDescriptor), SDDL_REVISION_1, pSecurityDescriptor, nil
+  ) then begin
+    ErrorCode := GetLastError;
+    Result := False;
+    Exit;
+  end;
+
+  SecurityAttr.nLength := SizeOf(SecurityAttr);
+  SecurityAttr.bInheritHandle := False;
+  SecurityAttr.lpSecurityDescriptor := pSecurityDescriptor;
+
+  Result := CreateDirectoryW(Path, @SecurityAttr);
+  if not Result then
+    ErrorCode := GetLastError;
+
+  LocalFree(pSecurityDescriptor);
+end;
+
 function IntToBase32(Number: Longint): String;
 const
   Table: array[0..31] of Char = '0123456789ABCDEFGHIJKLMNOPQRSTUV';
@@ -205,20 +266,18 @@ begin
   Result := Filename;
 end;
 
-function GenerateNonRandomUniqueFilename(Path: String; var Filename: String): Boolean;
-{ Returns True if it overwrote an existing file. }
+function GenerateNonRandomUniqueTempDir(Path: String; var TempDir: String): Boolean;
+{ Creates a new temporary directory with a non-random name. Returns True if an
+  existing directory was re-created. }
 var
-  Rand, RandOrig: Longint;
-  F: THandle;
-  Success: Boolean;
-  FN: String;
+  Rand, RandOrig: Longint; { These are actually NOT random in any way }
+  ErrorCode: DWORD;
 begin
   Path := AddBackslash(Path);
   RandOrig := $123456;
   Rand := RandOrig;
-  Success := False;
-  Result := False;
   repeat
+    Result := False;
     Inc(Rand);
     if Rand > $1FFFFFF then Rand := 0;
     if Rand = RandOrig then
@@ -227,18 +286,19 @@ begin
       raise Exception.Create(FmtSetupMessage1(msgErrorTooManyFilesInDir,
         RemoveBackslashUnlessRoot(Path)));
     { Generate a random name }
-    FN := Path + '_iu' + IntToBase32(Rand) + '.tmp';
-    if DirExists(FN) then Continue;
-    Success := True;
-    Result := NewFileExists(FN);
-    if Result then begin
-      F := CreateFile(PChar(FN), GENERIC_READ or GENERIC_WRITE, 0,
-        nil, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
-      Success := F <> INVALID_HANDLE_VALUE;
-      if Success then CloseHandle(F);
-    end;
-  until Success;
-  Filename := FN;
+    TempDir := Path + 'iu-' + IntToBase32(Rand) + '.tmp';
+    if DirExists(TempDir) then begin
+      if not DeleteDirTree(TempDir) then Continue;
+      Result := True;
+    end else if NewFileExists(TempDir) then
+      if not DeleteFile(TempDir) then Continue;
+
+    if CreateSafeDirectory(PChar(TempDir), ErrorCode) then Break;
+    if ErrorCode <> ERROR_ALREADY_EXISTS then
+      raise Exception.Create(FmtSetupMessage(msgLastErrorMessage,
+        [FmtSetupMessage1(msgErrorCreatingDir, TempDir), IntToStr(ErrorCode),
+         Win32ErrorString(ErrorCode)]));
+  until False; // continue until a new directory was created
 end;
 
 function CreateTempDir: String;
@@ -248,9 +308,8 @@ var
 begin
   while True do begin
     Dir := GenerateUniqueName(False, GetTempDir, '.tmp');
-    if CreateDirectory(PChar(Dir), nil) then
+    if CreateSafeDirectory(PChar(Dir), ErrorCode) then
       Break;
-    ErrorCode := GetLastError;
     if ErrorCode <> ERROR_ALREADY_EXISTS then
       raise Exception.Create(FmtSetupMessage(msgLastErrorMessage,
         [FmtSetupMessage1(msgErrorCreatingDir, Dir), IntToStr(ErrorCode),
@@ -643,7 +702,7 @@ begin
           end;
       end;
     except
-      { don't propogate exceptions (e.g. from StrToInt) }
+      { don't propagate exceptions (e.g. from StrToInt) }
     end;
     { If we failed to read the count, or it's in some type we don't recognize,
       don't touch it }
@@ -736,6 +795,21 @@ begin
   Result := SHA1Final(Context);
 end;
 
+function GetSHA256OfFile(const DisableFsRedir: Boolean; const Filename: String): String;
+{ Gets SHA-256 sum as a string of the file Filename. An exception will be raised upon
+  failure. }
+var
+  PrevState: TPreviousFsRedirectionState;
+begin
+  if not DisableFsRedirectionIf(DisableFsRedir, PrevState) then
+    InternalError('GetSHA256OfFile: DisableFsRedirectionIf failed.');
+  try
+    Result := THashSHA2.GetHashStringFromFile(Filename, SHA256);
+  finally
+    RestoreFsRedirection(PrevState);
+  end;
+end;
+
 function GetMD5OfAnsiString(const S: AnsiString): TMD5Digest;
 begin
   Result := MD5Buf(Pointer(S)^, Length(S)*SizeOf(S[1]));
@@ -757,6 +831,36 @@ end;
 function GetSHA1OfUnicodeString(const S: UnicodeString): TSHA1Digest;
 begin
   Result := SHA1Buf(Pointer(S)^, Length(S)*SizeOf(S[1]));
+end;
+{$ENDIF}
+
+function GetSHA256OfAnsiString(const S: AnsiString): String;
+var
+  M: TMemoryStream;
+begin
+  M := TMemoryStream.Create;
+  try
+    M.Write(Pointer(S)^, Length(S)*SizeOf(S[1]));
+    M.Seek(0, soFromBeginning);
+    Result := THashSHA2.GetHashString(M, SHA256);
+  finally
+    M.Free;
+  end;
+end;
+
+{$IFDEF UNICODE}
+function GetSHA256OfUnicodeString(const S: UnicodeString): String;
+var
+  M: TMemoryStream;
+begin
+  M := TMemoryStream.Create;
+  try
+    M.Write(Pointer(S)^, Length(S)*SizeOf(S[1]));
+    M.Seek(0, soFromBeginning);
+    Result := THashSHA2.GetHashString(M, SHA256);
+  finally
+    M.Free;
+  end;
 end;
 {$ENDIF}
 
@@ -1146,7 +1250,7 @@ begin
       end;
     end;
   except
-    { don't propogate exceptions }
+    { don't propagate exceptions }
   end;
   Result := MD5Final(Context);
 end;
@@ -1247,15 +1351,20 @@ begin
     DoNonNT;
 end;
 
-procedure UnregisterFont(const FontName, FontFilename: String);
+procedure UnregisterFont(const FontName, FontFilename: String; const PerUserFont: Boolean);
 const
   FontsKeys: array[Boolean] of PChar =
     (NEWREGSTR_PATH_SETUP + '\Fonts',
      'Software\Microsoft\Windows NT\CurrentVersion\Fonts');
 var
-  K: HKEY;
+  RootKey, K: HKEY;
 begin
-  if RegOpenKeyExView(rvDefault, HKEY_LOCAL_MACHINE, FontsKeys[UsingWinNT],
+  if PerUserFont then
+    RootKey := HKEY_CURRENT_USER
+  else
+    RootKey := HKEY_LOCAL_MACHINE;
+
+  if RegOpenKeyExView(rvDefault, RootKey, FontsKeys[UsingWinNT],
      0, KEY_SET_VALUE, K) = ERROR_SUCCESS then begin
     RegDeleteValue(K, PChar(FontName));
     RegCloseKey(K);

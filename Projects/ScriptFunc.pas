@@ -2,7 +2,7 @@ unit ScriptFunc;
 
 {
   Inno Setup
-  Copyright (C) 1997-2019 Jordan Russell
+  Copyright (C) 1997-2020 Jordan Russell
   Portions by Martijn Laan
   For conditions of distribution and use, see LICENSE.TXT.
 
@@ -14,7 +14,11 @@ interface
 const
 
   { ScriptDlg }
-  ScriptDlgTable: array [0..12] of AnsiString =
+{$IFNDEF PS_NOINT64}
+  ScriptDlgTable: array [0..14] of AnsiString =
+{$ELSE}
+  ScriptDlgTable: array [0..13] of AnsiString =
+{$ENDIF}
   (
     'function PageFromID(const ID: Integer): TWizardPage;',
     'function PageIndexFromID(const ID: Integer): Integer;',
@@ -26,6 +30,10 @@ const
     'function CreateOutputMsgPage(const AfterID: Integer; const ACaption, ADescription, AMsg: String): TOutputMsgWizardPage;',
     'function CreateOutputMsgMemoPage(const AfterID: Integer; const ACaption, ADescription, ASubCaption: String; const AMsg: AnsiString): TOutputMsgMemoWizardPage;',
     'function CreateOutputProgressPage(const ACaption, ADescription: String): TOutputProgressWizardPage;',
+    'function CreateOutputMarqueeProgressPage(const ACaption, ADescription: String): TOutputMarqueeProgressWizardPage;',
+{$IFNDEF PS_NOINT64}
+    'function CreateDownloadPage(const ACaption, ADescription: String; const OnDownloadProgress: TOnDownloadProgress): TDownloadWizardPage;',
+{$ENDIF}
     'function ScaleX(X: Integer): Integer;',
     'function ScaleY(Y: Integer): Integer;',
     'function CreateCustomForm: TSetupForm;'
@@ -120,17 +128,25 @@ const
   );
 
   { Install }
-  InstallTable: array [0..1] of AnsiString =
+{$IFNDEF PS_NOINT64}
+  InstallTable: array [0..3] of AnsiString =
+{$ELSE}
+  InstallTable: array [0..2] of AnsiString =
+{$ENDIF}
   (
     'procedure ExtractTemporaryFile(const FileName: String);',
-    'function ExtractTemporaryFiles(const Pattern: String): Integer;'
+    'function ExtractTemporaryFiles(const Pattern: String): Integer;',
+{$IFNDEF PS_NOINT64}
+    'function DownloadTemporaryFile(const Url, FileName, RequiredSHA256OfFile: String; const OnDownloadProgress: TOnDownloadProgress): Int64;',
+    'function DownloadTemporaryFileSize(const Url: String): Int64;'
+{$ENDIF}
   );
 
   { InstFunc }
 {$IFNDEF PS_NOINT64}
-  InstFuncTable: array [0..27] of AnsiString =
+  InstFuncTable: array [0..30] of AnsiString =
 {$ELSE}
-  InstFuncTable: array [0..26] of AnsiString =
+  InstFuncTable: array [0..29] of AnsiString =
 {$ENDIF}
   (
     'function CheckForMutexes(Mutexes: String): Boolean;',
@@ -146,6 +162,9 @@ const
     'function GetSHA1OfFile(const Filename: String): String;',
     'function GetSHA1OfString(const S: AnsiString): String;',
     'function GetSHA1OfUnicodeString(const S: String): String;',
+    'function GetSHA256OfFile(const Filename: String): String;',
+    'function GetSHA256OfString(const S: AnsiString): String;',
+    'function GetSHA256OfUnicodeString(const S: String): String;',
     'function GetSpaceOnDisk(const DriveRoot: String; const InMegabytes: Boolean; var Free, Total: Cardinal): Boolean;',
 {$IFNDEF PS_NOINT64}
     'function GetSpaceOnDisk64(const DriveRoot: String; var Free, Total: Int64): Boolean;',
@@ -163,7 +182,7 @@ const
     'function ModifyPifFile(const Filename: String; const CloseOnExit: Boolean): Boolean;',
     'procedure RegisterServer(const Is64Bit: Boolean; const Filename: String; const FailCriticalErrors: Boolean);',
     'function UnregisterServer(const Is64Bit: Boolean; const Filename: String; const FailCriticalErrors: Boolean): Boolean;',
-    'procedure UnregisterFont(const FontName, FontFilename: String);',
+    'procedure UnregisterFont(const FontName, FontFilename: String; const PerUserFont: Boolean);',
     //procedure RestartComputer;
     'procedure RestartReplace(const TempFile, DestFile: String);',
     //procedure Win32ErrorMsg(const FunctionName: String);
@@ -224,10 +243,19 @@ const
   );
 
   { System }
-  SystemTable: array [0..1] of AnsiString =
+{$IFNDEF PS_NOINT64}
+  SystemTable: array [0..4] of AnsiString =
+{$ELSE}
+  SystemTable: array [0..3] of AnsiString =
+{$ENDIF}
   (
     'function Random(const Range: Integer): Integer;',
-    'function FileSize(const Name: String; var Size: Integer): Boolean;'
+    'function FileSize(const Name: String; var Size: Integer): Boolean;',
+{$IFNDEF PS_NOINT64}
+    'function FileSize64(const Name: String; var Size: Int64): Boolean;',
+{$ENDIF}
+    'procedure Set8087CW(NewCW: Word);',
+    'function Get8087CW: Word;'
   );
 
   { SysUtils }
@@ -269,10 +297,20 @@ const
   );
 
   { VerInfo }
-  VerInfoTable: array [0..1] of AnsiString =
+  VerInfoTable: array [0..11] of AnsiString =
   (
     'function GetVersionNumbers(const Filename: String; var VersionMS, VersionLS: Cardinal): Boolean;',
-    'function GetVersionNumbersString(const Filename: String; var Version: String): Boolean;'
+    'function GetVersionComponents(const Filename: String; var Major, Minor, Revision, Build: Word): Boolean;',
+    'function GetVersionNumbersString(const Filename: String; var Version: String): Boolean;',
+    'function GetPackedVersion(const Filename: String; var Version: Int64): Boolean;',
+    'function PackVersionNumbers(const VersionMS, VersionLS: Cardinal): Int64;',
+    'function PackVersionComponents(const Major, Minor, Revision, Build: Word): Int64;',
+    'function ComparePackedVersion(const Version1, Version2: Int64): Integer;',
+    'function SamePackedVersion(const Version1, Version2: Int64): Boolean;',
+    'procedure UnpackVersionNumbers(const Version: Int64; var VersionMS, VersionLS: Cardinal);',
+    'procedure UnpackVersionComponents(const Version: Int64; var Major, Minor, Revision, Build: Word);',
+    'function VersionToStr(const Version: Int64): String;',
+    'function StrToVersion(const VersionString: String; var Version: Int64): Boolean;'
   );
 
   { Windows }
@@ -309,7 +347,7 @@ const
   );
 
   { Other }
-  OtherTable: array [0..30] of AnsiString =
+  OtherTable: array [0..33] of AnsiString =
   (
     'procedure BringToFrontAndRestore;',
     'function WizardDirValue: String;',
@@ -341,7 +379,10 @@ const
     'function SaveStringsToUTF8File(const FileName: String; const S: TArrayOfString; const Append: Boolean): Boolean;',
     'function EnableFsRedirection(const Enable: Boolean): Boolean;',
     'function GetUninstallProgressForm: TUninstallProgressForm;',
-    'function CreateCallback(Method: AnyMethod): Longword;'
+    'function CreateCallback(Method: AnyMethod): Longword;',
+    'function IsDotNetInstalled(const MinVersion: TDotNetVersion; const MinServicePack: Cardinal): Boolean;',
+    'function IsMsiProductInstalled(const UpgradeCode: String; const PackedMinVersion: Int64): Boolean;',
+    'function InitializeBitmapImageFromIcon(const BitmapImage: TBitmapImage; const IconFilename: String; const BkColor: TColor; const AscendingTrySizes: TArrayOfInteger): Boolean;'
   );
 
 implementation

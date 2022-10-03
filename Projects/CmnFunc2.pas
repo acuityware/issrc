@@ -79,6 +79,7 @@ function AddQuotes(const S: String): String;
 function RemoveQuotes(const S: String): String;
 function GetShortName(const LongName: String): String;
 function GetWinDir: String;
+function GetSystemWinDir: String;
 function GetSystemDir: String;
 function GetSysWow64Dir: String;
 function GetSysNativeDir(const IsWin64: Boolean): String;
@@ -105,6 +106,7 @@ function RegDeleteKeyView(const RegView: TRegView; const Key: HKEY; const Name: 
 function RegDeleteKeyIncludingSubkeys(const RegView: TRegView; const Key: HKEY; const Name: PChar): Longint;
 function RegDeleteKeyIfEmpty(const RegView: TRegView; const RootKey: HKEY; const SubkeyName: PChar): Longint;
 function GetShellFolderPath(const FolderID: Integer): String;
+function GetCurrentUserSid: String;
 function IsAdminLoggedOn: Boolean;
 function IsPowerUserLoggedOn: Boolean;
 function IsMultiByteString(const S: AnsiString): Boolean;
@@ -704,6 +706,22 @@ begin
   Result := StrPas(Buf);
 end;
 
+function GetSystemWindowsDirectoryW(lpBuffer: LPWSTR; uSize: UINT): UINT; stdcall; external kernel32;
+
+function GetSystemWinDir: String;
+{ Like get GetWinDir but uses GetSystemWindowsDirectory instead of
+  GetWindowsDirectory: With Terminal Services, the GetSystemWindowsDirectory
+  function retrieves the path of the system Windows directory, while the
+  GetWindowsDirectory function retrieves the path of a Windows directory that is
+  private for each user. On a single-user system, GetSystemWindowsDirectory is
+  the same as GetWindowsDirectory. }
+var
+  Buf: array[0..MAX_PATH-1] of Char;
+begin
+  GetSystemWindowsDirectoryW(Buf, SizeOf(Buf) div SizeOf(Buf[0]));
+  Result := StrPas(Buf);
+end;
+
 function GetSystemDir: String;
 { Returns fully qualified path of the Windows System directory. Only includes a
   trailing backslash if the Windows System directory is the root directory. }
@@ -1077,6 +1095,39 @@ begin
       Result := Buffer;
     if Assigned(Malloc) then
       Malloc.Free(pidl);
+  end;
+end;
+
+function GetCurrentUserSid: String;
+var
+  Token: THandle;
+  UserInfoSize: DWORD;
+  UserInfo: PTokenUser;
+  StringSid: PWideChar;
+begin
+  Result := '';
+  if not OpenProcessToken(GetCurrentProcess, TOKEN_QUERY,
+      {$IFDEF Delphi3orHigher} Token {$ELSE} @Token {$ENDIF}) then
+    Exit;
+  UserInfo := nil;
+  try
+    UserInfoSize := 0;
+    if not GetTokenInformation(Token, TokenUser, nil, 0, UserInfoSize) and
+        (GetLastError <> ERROR_INSUFFICIENT_BUFFER) then
+      Exit;
+
+    GetMem(UserInfo, UserInfoSize);
+    if not GetTokenInformation(Token, TokenUser, UserInfo,
+        UserInfoSize, UserInfoSize) then
+      Exit;
+
+    if ConvertSidToStringSidW(UserInfo.User.Sid, StringSid) then begin
+      Result := StringSid;
+      LocalFree(StringSid);
+    end;
+  finally
+    FreeMem(UserInfo);
+    CloseHandle(Token);
   end;
 end;
 

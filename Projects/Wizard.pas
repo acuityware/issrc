@@ -202,10 +202,13 @@ type
     procedure RegisterExistingPage(const ID: Integer;
      const AOuterNotebookPage, AInnerNotebookPage: TNewNotebookPage;
      const ACaption, ADescription: String);
+    procedure SelectComponents(const SelectComponents, DeselectComponents: TStringList; const KeepFixedComponents: Boolean); overload;
     procedure SelectComponentsFromType(const TypeName: String; const OnlySelectFixedComponents: Boolean);
+    procedure SelectTasks(const SelectTasks, DeselectTasks: TStringList); overload;
     function ShouldSkipPage(const PageID: Integer): Boolean;
     procedure UpdateComponentSizes;
     procedure UpdateComponentSizesEnum(Index: Integer; HasChildren: Boolean; Ext: LongInt);
+    procedure UpdateCurPageButtonState;
     procedure UpdatePage(const PageID: Integer);
     procedure UpdateSelectTasksPage;
     procedure WMSysCommand(var Message: TWMSysCommand); message WM_SYSCOMMAND;
@@ -232,10 +235,9 @@ type
     procedure IncTopDecHeight(const AControl: TControl; const Amount: Integer);
     function PageFromID(const ID: Integer): TWizardPage;
     function PageIndexFromID(const ID: Integer): Integer;
-    procedure UpdateCurPageButtonVisibility;
     procedure SetCurPage(const NewPageID: Integer);
-    procedure SelectComponents(const SelectComponents, DeselectComponents: TStringList; const KeepFixedComponents: Boolean);
-    procedure SelectTasks(const SelectTasks, DeselectTasks: TStringList);
+    procedure SelectComponents(const ASelectComponents: TStringList); overload;
+    procedure SelectTasks(const ASelectTasks: TStringList); overload;
     procedure FlipSizeAndCenterIfNeeded(const ACenterInsideControl: Boolean;
       const CenterInsideControlCtl: TWinControl; const CenterInsideControlInsideClientArea: Boolean); override;
     procedure UpdateRunList(const SelectedComponents, SelectedTasks: TStringList);
@@ -330,7 +332,8 @@ type
 var
   WizardForm: TWizardForm;
 
-function ExpandSetupMessage(const ID: TSetupMessageID): String;
+function ExpandSetupMessage(const Msg: String): String; overload;
+function ExpandSetupMessage(const ID: TSetupMessageID): String; overload;
 function ListContains(const List: TStringList; const S: String): Boolean;
 procedure TidyUpDirName(var Path: String);
 procedure TidyUpGroupName(var Path: String);
@@ -365,25 +368,58 @@ function IntToMBStr(const I: Integer64): String;
 var
   X: Extended;
 begin
-  X := (Comp(I) / 1048576) * 10;
+  X := (Comp(I) / 1048576) * 10; { * 10 to include a decimal }
   if Frac(X) > 0 then
     X := Int(X) + 1;  { always round up }
   X := X / 10;
   Result := Format('%.1n', [X]);
 end;
 
-function ExpandSetupMessageEx(const ID: TSetupMessageID;
-  const Space: Integer64): String;
+function IntToGBStr(const I: Integer64): String;
+var
+  X: Extended;
 begin
-  Result := SetupMessages[ID];
+  X := (Comp(I) / 1073741824) * 100; { * 100 to include 2 decimals }
+  if Frac(X) > 0 then
+    X := Int(X) + 1;  { always round up }
+  X := X / 100;
+  Result := Format('%.2n', [X]);
+end;
+
+function ExpandSetupMessageEx(const Msg: String; const Space: Integer64): String; overload;
+begin
+  Result := Msg;
   {don't localize these}
   StringChange(Result, '[name]', ExpandedAppName);
   StringChange(Result, '[name/ver]', ExpandedAppVerName);
   StringChange(Result, '[kb]', IntToKBStr(Space));
   StringChange(Result, '[mb]', IntToMBStr(Space));
+  StringChange(Result, '[gb]', IntToGBStr(Space));
 end;
 
-function ExpandSetupMessage(const ID: TSetupMessageID): String;
+function ExpandSetupMessageEx(const ID: TSetupMessageID; const Space: Integer64): String; overload;
+begin
+  Result := ExpandSetupMessageEx(SetupMessages[ID], Space);
+end;
+
+function ExpandMBOrGBSetupMessage(const MBID, GBID: TSetupMessageID;
+  const Space: Integer64): String;
+begin
+  if Comp(Space) > 1048471142 then begin
+    { Don't allow it to display 1000.0 MB or more. Takes the 'always round up' into account:
+      1048471142 bytes = 999.8999996185303 MB = '999.9 MB',
+      1048471143 bytes = 999.9000005722046 MB = '1,000.0 MB'. }
+    Result := ExpandSetupMessageEx(GBID, Space)
+  end else
+    Result := ExpandSetupMessageEx(MBID, Space);
+end;
+
+function ExpandSetupMessage(const Msg: String): String; overload;
+begin
+  Result := ExpandSetupMessageEx(Msg, MinimumSpace);
+end;
+
+function ExpandSetupMessage(const ID: TSetupMessageID): String; overload;
 begin
   Result := ExpandSetupMessageEx(ID, MinimumSpace);
 end;
@@ -560,8 +596,8 @@ begin
 
   SelectedComponents.Free();
 
-  ComponentsDiskSpaceLabel.Caption := ExpandSetupMessageEx(msgComponentsDiskSpaceMBLabel,
-    CurrentComponentsSpace);
+  ComponentsDiskSpaceLabel.Caption := ExpandMBOrGBSetupMessage(
+    msgComponentsDiskSpaceMBLabel, msgComponentsDiskSpaceGBLabel, CurrentComponentsSpace);
 end;
 
 procedure TWizardForm.UpdateComponentSizesEnum(Index: Integer; HasChildren: Boolean; Ext: LongInt);
@@ -670,13 +706,13 @@ end;
 
 procedure TWizardPage.SetCaption(const Value: String);
 begin
-  FCaption := Value;
+  FCaption := ExpandSetupMessage(Value);
   SyncCaptionAndDescription;
 end;
 
 procedure TWizardPage.SetDescription(const Value: String);
 begin
-  FDescription := Value;
+  FDescription := ExpandSetupMessage(Value);
   SyncCaptionAndDescription;
 end;
 
@@ -693,72 +729,7 @@ end;
 constructor TWizardForm.Create(AOwner: TComponent);
 { Do all initialization of the wizard form. We're overriding Create instead of
   using the FormCreate event, because if an exception is raised in FormCreate
-  it's not propogated out. }
-
-  procedure LoadSelectDirAndGroupImages;
-
-    procedure IconToBitmapImage(const AIcon: HICON; const Ctl: TBitmapImage; const BkColor: TColor);
-    begin
-      if AIcon <> 0 then begin
-        try
-          with Ctl.Bitmap do begin
-            Width := 32;
-            Height := 32;
-            Canvas.Brush.Color := BkColor;
-            Canvas.FillRect(Rect(0, 0, 32, 32));
-            DrawIconEx(Canvas.Handle, 0, 0, AIcon, 32, 32, 0, 0, DI_NORMAL);
-          end;
-        finally
-          DestroyIcon(AIcon);
-        end;
-      end;
-    end;
-
-  var
-    FileInfo: TSHFileInfo;
-    Path: String;
-  begin
-    { Set sizes (overrides any scaling) }
-    SelectDirBitmapImage.Width := 32;
-    SelectDirBitmapImage.Height := 32;
-    SelectGroupBitmapImage.Width := 32;
-    SelectGroupBitmapImage.Height := 32;
-
-    try
-      { We have to extract the icons ourself using ExtractIcon because the
-        icons SHGetFileInfo returns differ in size depending on whether
-        "Use large icons" is turned on, and we don't want that.
-        Note: We *could* avoid SHGetFileInfo altogether and pass 'shell32.dll'
-        and a hard-coded index directly to ExtractIcon, but I'm worried that
-        might not work in a future Windows version. }
-      if (SHGetFileInfo('c:\directory', FILE_ATTRIBUTE_DIRECTORY, FileInfo,
-          SizeOf(FileInfo), SHGFI_USEFILEATTRIBUTES or SHGFI_ICONLOCATION) <> 0) and
-         (FileInfo.szDisplayName[0] <> #0) then
-        IconToBitmapImage(ExtractIcon(HInstance, FileInfo.szDisplayName,
-          FileInfo.iIcon), SelectDirBitmapImage, SelectDirPage.Color);
-
-      if WindowsVersionAtLeast(6, 0) then begin
-        { On Windows Vista and 7, use the "Taskbar and Start Menu Properties"
-          icon as there is no longer a separate icon for Start Menu folders }
-        IconToBitmapImage(ExtractIcon(HInstance,
-          PChar(AddBackslash(WinSystemDir) + 'shell32.dll'), 39),
-          SelectGroupBitmapImage, SelectProgramGroupPage.Color);
-      end
-      else begin
-        Path := GetShellFolder(False, sfPrograms, False);
-        if Path = '' then
-          Path := GetShellFolder(True, sfPrograms, False);
-        if Path <> '' then begin
-          if (SHGetFileInfo(PChar(Path), 0, FileInfo, SizeOf(FileInfo),
-              SHGFI_ICONLOCATION) <> 0) and (FileInfo.szDisplayName[0] <> #0) then
-            IconToBitmapImage(ExtractIcon(HInstance, FileInfo.szDisplayName,
-              FileInfo.iIcon), SelectGroupBitmapImage, SelectProgramGroupPage.Color);
-        end;
-      end;
-    except
-      { ignore any exceptions }
-    end;
-  end;
+  it's not propagated out. }
 
   function SelectBestImage(WizardImages: TList; TargetWidth, TargetHeight: Integer): TBitmap;
   var
@@ -869,8 +840,9 @@ begin
   end;
   
   { Position the buttons, and scale their size }
-  W1 := CalculateButtonWidth([msgButtonBack, msgButtonCancel, msgButtonFinish,
-    msgButtonInstall, msgButtonNext]);  { width of each button }
+  W1 := CalculateButtonWidth([SetupMessages[msgButtonBack], SetupMessages[msgButtonCancel],
+    SetupMessages[msgButtonFinish], SetupMessages[msgButtonInstall],
+    SetupMessages[msgButtonNext]]);  { width of each button }
   W2 := ScalePixelsX(10);  { margin, and space between Next & Cancel }
 
   BackButton.Width := W1;
@@ -899,10 +871,9 @@ begin
   WizardBitmapImage2.Stretch := (shWizardImageStretch in SetupHeader.Options);
   WizardSmallBitmapImage.Bitmap := SelectBestImage(WizardSmallImages, WizardSmallBitmapImage.Width, WizardSmallBitmapImage.Height);
   WizardSmallBitmapImage.Stretch := (shWizardImageStretch in SetupHeader.Options);
-  PreparingErrorBitmapImage.Bitmap.Handle := LoadBitmap(HInstance, 'STOPIMAGE');
-  PreparingErrorBitmapImage.ReplaceColor := RGB(255, 0, 255);
-  PreparingErrorBitmapImage.ReplaceWithColor := PreparingPage.Color;
-  LoadSelectDirAndGroupImages;
+  SelectDirBitmapImage.InitializeFromIcon(HInstance, 'Z_DIRICON', SelectDirPage.Color, [32, 48, 64]); {don't localize}
+  SelectGroupBitmapImage.InitializeFromIcon(HInstance, 'Z_GROUPICON', SelectProgramGroupPage.Color, [32, 48, 64]); {don't localize}
+  PreparingErrorBitmapImage.InitializeFromIcon(HInstance, 'Z_STOPICON', PreparingPage.Color, [16, 24, 32]); {don't localize}
 
   { Initialize wpWelcome page }
   RegisterExistingPage(wpWelcome, WelcomePage, nil, '', '');
@@ -982,11 +953,12 @@ begin
   DirEdit.Top := DirEdit.Top + I;
   TryEnableAutoCompleteFileSystem(DirEdit.Handle);
   DirBrowseButton.Caption := SetupMessages[msgButtonWizardBrowse];
-  X := CalculateButtonWidth([msgButtonWizardBrowse]);
+  X := CalculateButtonWidth([SetupMessages[msgButtonWizardBrowse]]);
   DirBrowseButton.SetBounds(InnerNotebook.Width - X,
     DirBrowseButton.Top + I, X, DirBrowseButton.Height);
   DirEdit.Width := DirBrowseButton.Left - ScalePixelsX(10) - DirEdit.Left;
-  DiskSpaceLabel.Caption := ExpandSetupMessage(msgDiskSpaceMBLabel);
+  DiskSpaceLabel.Caption := ExpandMBOrGBSetupMessage(
+    msgDiskSpaceMBLabel, msgDiskSpaceGBLabel, MinimumSpace);
   DiskSpaceLabel.Top := DiskSpaceLabel.Top - AdjustLabelHeight(DiskSpaceLabel);
 
   { Initialize wpSelectComponents page }
@@ -996,7 +968,8 @@ begin
   I := AdjustLabelHeight(SelectComponentsLabel);
   TypesCombo.Top := TypesCombo.Top + I;
   IncTopDecHeight(ComponentsList, I);
-  ComponentsDiskSpaceLabel.Caption := ExpandSetupMessage(msgComponentsDiskSpaceMBLabel);
+  ComponentsDiskSpaceLabel.Caption := ExpandMBOrGBSetupMessage(
+    msgComponentsDiskSpaceMBLabel, msgComponentsDiskSpaceGBLabel, MinimumSpace);
   AdjustLabelHeight(ComponentsDiskSpaceLabel);
 
   if HasCustomType and (Entries[seType].Count = 1) then begin
@@ -1025,7 +998,7 @@ begin
   Inc(I, AdjustLabelHeight(SelectStartMenuFolderBrowseLabel));
   GroupEdit.Top := GroupEdit.Top + I;
   GroupBrowseButton.Caption := SetupMessages[msgButtonWizardBrowse];
-  X := CalculateButtonWidth([msgButtonWizardBrowse]);
+  X := CalculateButtonWidth([SetupMessages[msgButtonWizardBrowse]]);
   GroupBrowseButton.SetBounds(InnerNotebook.Width - X,
     GroupBrowseButton.Top + I, X, GroupBrowseButton.Height);
   GroupEdit.Width := GroupBrowseButton.Left - ScalePixelsX(10) - GroupEdit.Left;
@@ -1222,8 +1195,8 @@ begin
     end;
   end;
 
-  UpdateComponentSizes();
-  CalcCurrentComponentsSpace();
+  UpdateComponentSizes;
+  CalcCurrentComponentsSpace;
 
   //Show or hide the components list based on the selected type
   if HasCustomType then begin
@@ -1278,13 +1251,13 @@ procedure TWizardForm.FormResize(Sender: TObject);
     { BitmapImage's size is already corrected by the Anchors property but this
       doesn't keep the aspect ratio. Calculate and set new width to restore the
       aspect ratio and update all the other controls in the page for this. Don't
-      do this if [Code] made any change to BitmapImage's Align or Anchors
+      do this if [Code] made any change to BitmapImage's Visible, Align or Anchors
       signalling that it wants a custom layout. }
     if ControlsFlipped then
       ExpectedAnchors := [akTop, akRight, akBottom]
     else
       ExpectedAnchors := [akLeft, akTop, akBottom];
-    if (BitmapImage.Align = alNone) and (BitmapImage.Anchors = ExpectedAnchors) then begin
+    if BitmapImage.Visible and (BitmapImage.Align = alNone) and (BitmapImage.Anchors = ExpectedAnchors) then begin
       if BaseUnitX = 0 then
         InternalError('AnchorOuterPage: BaseUnitX = 0');
       NewWidth := MulDiv(BitmapImage.Height, ScalePixelsX(164), ScalePixelsY(314)); //164x314 is the original bitmapimage size
@@ -1652,6 +1625,13 @@ begin
   end;
 end;
 
+procedure TWizardForm.SelectComponents(const ASelectComponents: TStringList);
+begin
+  SelectComponents(ASelectComponents, nil, False);
+  UpdateComponentSizes;
+  CalcCurrentComponentsSpace;
+end;
+
 procedure TWizardForm.SelectTasks(const SelectTasks, DeselectTasks: TStringList);
 var
   I: Integer;
@@ -1677,6 +1657,11 @@ begin
       end;
     end;
   end;
+end;
+
+procedure TWizardForm.SelectTasks(const ASelectTasks: TStringList);
+begin
+  SelectTasks(ASelectTasks, nil);
 end;
 
 procedure TWizardForm.SelectComponentsFromType(const TypeName: String; const OnlySelectFixedComponents: Boolean);
@@ -1819,7 +1804,6 @@ end;
 
 function TWizardForm.PrepareToInstall(const WizardComponents, WizardTasks: TStringList): String;
 var
-  WindowDisabler: TWindowDisabler;
   CodeNeedsRestart: Boolean;
   Y: Integer;
 begin
@@ -1837,26 +1821,27 @@ begin
     SetCurPage(wpPreparing);
     BackButton.Visible := False;
     NextButton.Visible := False;
+    CancelButton.Enabled := False;
     if InstallMode = imSilent then begin
       SetActiveWindow(Application.Handle);  { ensure taskbar button is selected }
       WizardForm.Show;
     end;
     WizardForm.Update;
-    WindowDisabler := TWindowDisabler.Create;
     try
+      DownloadTemporaryFileProcessMessages := True;
       CodeNeedsRestart := False;
       Result := CodeRunner.RunStringFunctions('PrepareToInstall', [@CodeNeedsRestart], bcNonEmpty, True, '');
       PrepareToInstallNeedsRestart := (Result <> '') and CodeNeedsRestart;
     finally
-      WindowDisabler.Free;
-      UpdateCurPageButtonVisibility;
+      DownloadTemporaryFileProcessMessages := False;
+      UpdateCurPageButtonState;
     end;
     Application.BringToFront;
   end;
   if Result <> '' then begin
     if PrepareToInstallNeedsRestart then
       PreparingLabel.Caption := Result +
-        SNewLine + SNewLine + SNewLine + ExpandSetupMessage(msgFinishedRestartLabel) + SNewLine
+        SNewLine + SNewLine + SNewLine + ExpandSetupMessage(msgPrepareToInstallNeedsRestart) + SNewLine
     else
       PreparingLabel.Caption := Result +
         SNewLine + SNewLine + SNewLine + SetupMessages[msgCannotContinue];
@@ -1866,17 +1851,16 @@ begin
     if PrepareToInstallNeedsRestart then begin
       Y := PreparingLabel.Top + PreparingLabel.Height;
       PreparingYesRadio.Top := Y;
+      PreparingYesRadio.Anchors := [akLeft, akTop, akRight];
       PreparingYesRadio.Caption := SetupMessages[msgYesRadio];
       PreparingYesRadio.Visible := True;
       PreparingNoRadio.Top := Y + ScalePixelsY(22);
+      PreparingNoRadio.Anchors := [akLeft, akTop, akRight];
       PreparingNoRadio.Caption := SetupMessages[msgNoRadio];
       PreparingNoRadio.Visible := True;
     end;
   end;
 end;
-
-var
-  DidRegisterResources: Boolean;
 
 function TWizardForm.QueryRestartManager(const WizardComponents, WizardTasks: TStringList): String;
 
@@ -1920,56 +1904,57 @@ var
 begin
   { Clear existing registered resources if we get here a second time (user clicked Back after first time). There
     doesn't seem to be function to do this directly, so restart the session instead. }
-  if DidRegisterResources then begin
+  if RmRegisteredFilesCount <> 0 then begin
     RmEndSession(RmSessionHandle);
     if RmStartSession(@RmSessionHandle, 0, RmSessionKey) <> ERROR_SUCCESS then
       RmSessionStarted := False;
   end;
 
-  if RmSessionStarted then begin
-    RegisterResourcesWithRestartManager(WizardComponents, WizardTasks);
-    DidRegisterResources := True;
-  end;
+  if RmSessionStarted then
+    RegisterResourcesWithRestartManager(WizardComponents, WizardTasks); { This will update RmSessionStarted and RmRegisteredFilesCount }
 
   if RmSessionStarted then begin
-    ProcessInfosCount := 0;
-    ProcessInfosCountNeeded := 5; { Start with 5 to hopefully avoid a realloc }
-    ProcessInfos := nil;
-    try
-      Log('Calling RestartManager''s RmGetList.');
-      while ProcessInfosCount < ProcessInfosCountNeeded do begin
+    LogFmt('Found %d files to register with RestartManager.', [RmRegisteredFilesCount]);
+    if RmRegisteredFilesCount > 0 then begin
+      ProcessInfosCount := 0;
+      ProcessInfosCountNeeded := 5; { Start with 5 to hopefully avoid a realloc }
+      ProcessInfos := nil;
+      try
+        Log('Calling RestartManager''s RmGetList.');
+        while ProcessInfosCount < ProcessInfosCountNeeded do begin
+          if ProcessInfos <> nil then
+            FreeMem(ProcessInfos);
+          GetMem(ProcessInfos, ProcessInfosCountNeeded * SizeOf(ProcessInfos[0]));
+          ProcessInfosCount := ProcessInfosCountNeeded;
+
+          if not RmGetList(RmSessionHandle, @ProcessInfosCountNeeded, @ProcessInfosCount, ProcessInfos, @RebootReasons) in [ERROR_SUCCESS, ERROR_MORE_DATA] then begin
+            RmEndSession(RmSessionHandle);
+            RmSessionStarted := False;
+            Break;
+          end;
+        end;
+
+        if RmSessionStarted then begin
+          Log('RmGetList finished successfully.');
+          if ProcessInfosCount > 0 then begin
+            for I := 0 to ProcessInfosCount-1 do begin
+              AppName := WideCharToString(ProcessInfos[I].strAppName);
+              LogFmt('RestartManager found an application using one of our files: %s', [AppName]);
+              if RebootReasons = RmRebootReasonNone then begin
+                if Result <> '' then
+                  Result := Result + #13#10;
+                Result := Result + AppName;
+              end;
+            end;
+            LogFmt('Can use RestartManager to avoid reboot? %s (%s)', [SYesNo[RebootReasons = RmRebootReasonNone], RebootReasonsToString(RebootReasons)]);
+          end else
+            Log('RestartManager found no applications using one of our files.');
+        end else
+          Log('RmGetList failed.');
+      finally
         if ProcessInfos <> nil then
           FreeMem(ProcessInfos);
-        GetMem(ProcessInfos, ProcessInfosCountNeeded * SizeOf(ProcessInfos[0]));
-        ProcessInfosCount := ProcessInfosCountNeeded;
-
-        if not RmGetList(RmSessionHandle, @ProcessInfosCountNeeded, @ProcessInfosCount, ProcessInfos, @RebootReasons) in [ERROR_SUCCESS, ERROR_MORE_DATA] then begin
-          RmEndSession(RmSessionHandle);
-          RmSessionStarted := False;
-          Break;
-        end;
       end;
-
-      if RmSessionStarted then begin
-        Log('RmGetList finished successfully.');
-        if ProcessInfosCount > 0 then begin
-          for I := 0 to ProcessInfosCount-1 do begin
-            AppName := WideCharToString(ProcessInfos[I].strAppName);
-            LogFmt('RestartManager found an application using one of our files: %s', [AppName]);
-            if RebootReasons = RmRebootReasonNone then begin
-              if Result <> '' then
-                Result := Result + #13#10;
-              Result := Result + AppName;
-            end;
-          end;
-          LogFmt('Can use RestartManager to avoid reboot? %s (%s)', [SYesNo[RebootReasons = RmRebootReasonNone], RebootReasonsToString(RebootReasons)]);
-        end else
-          Log('RestartManager found no applications using one of our files.');
-      end else
-        Log('RmGetList failed.');
-    finally
-      if ProcessInfos <> nil then
-        FreeMem(ProcessInfos);
     end;
   end;
 
@@ -1989,9 +1974,11 @@ begin
     PreparingMemo.Visible := True;
     Y := PreparingMemo.Top + PreparingMemo.Height + ScalePixelsY(12);
     PreparingYesRadio.Top := Y;
+    PreparingYesRadio.Anchors := [akLeft, akRight, akBottom];
     PreparingYesRadio.Caption := SetupMessages[msgCloseApplications];
     PreparingYesRadio.Visible := True;
     PreparingNoRadio.Top := Y + ScalePixelsY(22);
+    PreparingNoRadio.Anchors := [akLeft, akRight, akBottom];
     PreparingNoRadio.Caption := SetupMessages[msgDontCloseApplications];
     PreparingNoRadio.Visible := True;
   end;
@@ -2146,7 +2133,7 @@ begin
   Result := -1;
 end;
 
-procedure TWizardForm.UpdateCurPageButtonVisibility;
+procedure TWizardForm.UpdateCurPageButtonState;
 var
   PageIndex: Integer;
   Page: TWizardPage;
@@ -2202,7 +2189,7 @@ begin
     not(CurPageID in [wpWelcome, wpFinished]);
 
   { Set button visibility and captions }
-  UpdateCurPageButtonVisibility;
+  UpdateCurPageButtonState;
 
   BackButton.Caption := SetupMessages[msgButtonBack];
   if CurPageID = wpReady then begin
@@ -2526,7 +2513,7 @@ begin
                 if RmFoundApplications then
                   Break;  { stop on the page }
               finally
-                UpdateCurPageButtonVisibility;
+                UpdateCurPageButtonState;
               end;
             end;
           finally
@@ -2618,8 +2605,8 @@ begin
     end;
   end;
 
-  UpdateComponentSizes();
-  CalcCurrentComponentsSpace();
+  UpdateComponentSizes;
+  CalcCurrentComponentsSpace;
 end;
 
 procedure TWizardForm.ComponentsListClickCheck(Sender: TObject);
@@ -2651,8 +2638,8 @@ begin
     end
   end;
 
-  UpdateComponentSizes();
-  CalcCurrentComponentsSpace();
+  UpdateComponentSizes;
+  CalcCurrentComponentsSpace;
 end;
 
 procedure TWizardForm.NoIconsCheckClick(Sender: TObject);
@@ -2962,7 +2949,7 @@ begin
     if (CurPageID = wpPreparing) and (PrepareToInstallFailureMessage <> '') and not (PrepareToInstallNeedsRestart and not InitNoRestart) then begin
       { Special handling needed for wpPreparing since it displays its error
         message inline on the wizard. Since the wizard isn't currently visible,
-        we have to display the messsage in a message box if it won't be displayed
+        we have to display the message in a message box if it won't be displayed
         by a reboot confirmation message box later on. }
       LoggedMsgBox(PrepareToInstallFailureMessage, '',
         mbCriticalError, MB_OK, True, IDOK);
@@ -2985,7 +2972,7 @@ begin
       if NextButton.CanFocus then
         NextButton.Click;
     except
-      { Mustn't propogate post-install exceptions }
+      { Mustn't propagate post-install exceptions }
       if MainForm.CurStep <= ssInstall then
         raise
       else

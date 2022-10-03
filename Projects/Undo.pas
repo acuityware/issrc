@@ -2,7 +2,7 @@ unit Undo;
 
 {
   Inno Setup
-  Copyright (C) 1997-2019 Jordan Russell
+  Copyright (C) 1997-2020 Jordan Russell
   Portions by Martijn Laan
   For conditions of distribution and use, see LICENSE.TXT.
 
@@ -23,7 +23,7 @@ const
   { Each time the format of the uninstall log changes (usually a new entry type
     is added), HighestSupportedVersion and the file version number of Setup
     are incremented to match (51.x). Do NOT do this yourself; doing so could cause
-    incompatibilies with future Inno Setup releases. It's recommended that you
+    incompatibilities with future Inno Setup releases. It's recommended that you
     use the "utUserDefined" log entry type if you wish to implement your own
     custom uninstall log entries; see below for more information.
 
@@ -36,7 +36,7 @@ const
   { Values for TUninstallRecTyp.
     If you wish to define your own custom uninstall entry type, you should use
     "utUserDefined". (Do NOT define your own ut* constants; this could cause
-    incompatibilies with future Inno Setup releases.) The first field in a
+    incompatibilities with future Inno Setup releases.) The first field in a
     utUserDefined record must be a string which specifies a unique name for
     the record type. Example:
     UninstLog.Add(utUserDefined, ['MyRecordType', ... ], 0);
@@ -69,6 +69,7 @@ const
   utRun_RunHidden = 64;
   utRun_ShellExecRespectWaitFlags = 128;
   utRun_DisableFsRedir = 256;
+  utRun_DontLogParameters = 512;
   utDeleteFile_ExistedBeforeInstall = 1;
   utDeleteFile_Extra = 2;
   utDeleteFile_IsFont = 4;
@@ -82,6 +83,7 @@ const
   utDeleteFile_SharedFileIn64BitKey = 1024;
   utDeleteFile_DisableFsRedir = 2048;  { also determines whether file was registered as 64-bit }
   utDeleteFile_GacInstalled = 4096;
+  utDeleteFile_PerUserFont = 8192;
   utDeleteDirOrFiles_Extra = 1;
   utDeleteDirOrFiles_IsDir = 2;
   utDeleteDirOrFiles_DeleteFiles = 4;
@@ -100,7 +102,7 @@ type
     ExtraData: Longint;
     DataSize: Cardinal;
     Typ: TUninstallRecTyp;
-    Data: array[0..$6FFFFFFF] of Byte;  { *must* be last field }	
+    Data: array[0..$6FFFFFFF] of Byte;  { *must* be last field }
   end;
 
   TDeleteUninstallDataFilesProc = procedure;
@@ -160,7 +162,7 @@ implementation
 uses
   Messages, ShlObj, AnsiStrings,
   PathFunc, Struct, Msgs, MsgIDs, InstFunc, InstFnc2, RedirFunc, Compress,
-  Logging, RegDLL, Helper, LibFusion;
+  Logging, RegDLL, Helper, DotNet;
 
 type
   { Note: TUninstallLogHeader should stay <= 512 bytes in size, so that it
@@ -248,7 +250,7 @@ begin
   Result := False;
 end;
 
-procedure RestartDeleteDir(const DisableFsRedir: Boolean; Dir: String);
+procedure LoggedRestartDeleteDir(const DisableFsRedir: Boolean; Dir: String);
 begin
   Dir := PathExpand(Dir);
   if not DisableFsRedir then begin
@@ -265,7 +267,7 @@ const
   drFalse = '0';
   drTrue = '1';
 
-function DeleteDir(const DisableFsRedir: Boolean; const DirName: String;
+function LoggedDeleteDir(const DisableFsRedir: Boolean; const DirName: String;
   const DirsNotRemoved, RestartDeleteDirList: TSimpleStringList): Boolean;
 const
   FILE_ATTRIBUTE_REPARSE_POINT = $00000400;
@@ -305,7 +307,7 @@ begin
           restart-delete directories on Windows 9x. }
         LogFmt('Failed to delete directory (%d). Will delete on restart (if empty).',
           [LastError]);
-        RestartDeleteDir(DisableFsRedir, DirName);
+        LoggedRestartDeleteDir(DisableFsRedir, DirName);
       end
       else
         LogFmt('Failed to delete directory (%d).', [LastError]);
@@ -481,13 +483,13 @@ type
     DirsNotRemoved: TSimpleStringList;
   end;
 
-function DeleteDirProc(const DisableFsRedir: Boolean; const DirName: String;
+function LoggedDeleteDirProc(const DisableFsRedir: Boolean; const DirName: String;
   const Param: Pointer): Boolean;
 begin
-  Result := DeleteDir(DisableFsRedir, DirName, PDeleteDirData(Param)^.DirsNotRemoved, nil);
+  Result := LoggedDeleteDir(DisableFsRedir, DirName, PDeleteDirData(Param)^.DirsNotRemoved, nil);
 end;
 
-function DeleteFileProc(const DisableFsRedir: Boolean; const FileName: String;
+function LoggedDeleteFileProc(const DisableFsRedir: Boolean; const FileName: String;
   const Param: Pointer): Boolean;
 begin
   LogFmt('Deleting file: %s', [FileName]);
@@ -599,7 +601,7 @@ var
   UnregisteredServersList, RestartDeleteDirList: array[Boolean] of TSimpleStringList;
   DeleteDirData: TDeleteDirData;
 
-  function FileDelete(const Filename: String; const DisableFsRedir,
+  function LoggedFileDelete(const Filename: String; const DisableFsRedir,
     NotifyChange, RestartDelete, RemoveReadOnly: Boolean): Boolean;
   var
     ExistingAttr, LastError: DWORD;
@@ -608,11 +610,11 @@ var
 
     { Automatically delete generated indexes associated with help files }
     if CompareText(PathExtractExt(Filename), '.hlp') = 0 then begin
-      FileDelete(PathChangeExt(Filename, '.gid'), DisableFsRedir, False, False, False);
-      FileDelete(PathChangeExt(Filename, '.fts'), DisableFsRedir, False, False, False);
+      LoggedFileDelete(PathChangeExt(Filename, '.gid'), DisableFsRedir, False, False, False);
+      LoggedFileDelete(PathChangeExt(Filename, '.fts'), DisableFsRedir, False, False, False);
     end
     else if CompareText(PathExtractExt(Filename), '.chm') = 0 then
-      FileDelete(PathChangeExt(Filename, '.chw'), DisableFsRedir, False, False, False);
+      LoggedFileDelete(PathChangeExt(Filename, '.chw'), DisableFsRedir, False, False, False);
 
     { Automatically unpin shortcuts }
     if CompareText(PathExtractExt(Filename), '.lnk') = 0 then
@@ -663,7 +665,7 @@ var
     end;
   end;
 
-  function DoDecrementSharedCount(const Filename: String;
+  function LoggedDecrementSharedCount(const Filename: String;
     const Key64Bit: Boolean): Boolean;
   const
     Bits: array[Boolean] of Integer = (32, 64);
@@ -680,7 +682,7 @@ var
       Log('Shared count reached zero.');
   end;
 
-  procedure DoUnregisterServer(const Is64Bit: Boolean; const Filename: String);
+  procedure LoggedUnregisterServer(const Is64Bit: Boolean; const Filename: String);
   begin
     { Just as an optimization, make sure we aren't unregistering
       the same file again }
@@ -701,7 +703,7 @@ var
       LogFmt('Not unregistering DLL/OCX again: %s', [Filename]);
   end;
 
-  procedure DoUnregisterTypeLibrary(const Is64Bit: Boolean;
+  procedure LoggedUnregisterTypeLibrary(const Is64Bit: Boolean;
     const Filename: String);
   begin
     if Is64Bit then
@@ -719,7 +721,7 @@ var
     end;
   end;
 
-  procedure DoUninstallAssembly(const StrongAssemblyName: String);
+  procedure LoggedUninstallAssembly(const StrongAssemblyName: String);
   begin
     LogFmt('Uninstalling from GAC: %s', [StrongAssemblyName]);
     try
@@ -733,7 +735,7 @@ var
     end;
   end;
 
-  procedure ProcessDirsNotRemoved;
+  procedure LoggedProcessDirsNotRemoved;
   var
     I: Integer;
     S: String;
@@ -745,8 +747,16 @@ var
         (e.g. '0C:\Program Files\My Program') }
       DisableFsRedir := (S[1] = drTrue);
       System.Delete(S, 1, 1);
-      DeleteDir(DisableFsRedir, S, nil, RestartDeleteDirList[DisableFsRedir]);
+      LoggedDeleteDir(DisableFsRedir, S, nil, RestartDeleteDirList[DisableFsRedir]);
     end;
+  end;
+  
+  function GetLogIniFilename(const Filename: String): String;
+  begin
+    if Filename <> '' then
+      Result := Filename
+    else
+      Result := 'win.ini';
   end;
 
 const
@@ -758,7 +768,8 @@ var
   CurRecDataPChar: array[0..9] of PChar;
   CurRecData: array[0..9] of String;
   ShouldDeleteRec, IsTempFile, IsSharedFile, SharedCountDidReachZero: Boolean;
-  FN: String;
+  Filename, Section, Key: String;
+  Subkey, ValueName: PChar;
   P, ErrorCode: Integer;
   RegView: TRegView;
   RootKey, K: HKEY;
@@ -830,7 +841,7 @@ begin
                 function of Main.pas }
               if CurRec^.ExtraData and utRun_ShellExec = 0 then begin
                 Log('Running Exec filename: ' + CurRecData[0]);
-                if CurRecData[1] <> '' then
+                if (CurRec^.ExtraData and utRun_DontLogParameters = 0) and (CurRecData[1] <> '') then
                   Log('Running Exec parameters: ' + CurRecData[1]);
                 if (CurRec^.ExtraData and utRun_SkipIfDoesntExist = 0) or
                    NewFileExistsRedir(CurRec^.ExtraData and utRun_DisableFsRedir <> 0, CurRecData[0]) then begin
@@ -849,7 +860,7 @@ begin
               end
               else begin
                 Log('Running ShellExec filename: ' + CurRecData[0]);
-                if CurRecData[1] <> '' then
+                if (CurRec^.ExtraData and utRun_DontLogParameters = 0) and (CurRecData[1] <> '') then
                   Log('Running ShellExec parameters: ' + CurRecData[1]);
                 if (CurRec^.ExtraData and utRun_SkipIfDoesntExist = 0) or
                    FileOrDirExists(CurRecData[0]) then begin
@@ -902,7 +913,7 @@ begin
             { Decrement shared file count if necessary }
             IsSharedFile := CurRec^.ExtraData and utDeleteFile_SharedFile <> 0;
             if IsSharedFile then
-              SharedCountDidReachZero := DoDecrementSharedCount(CurRecData[0],
+              SharedCountDidReachZero := LoggedDecrementSharedCount(CurRecData[0],
                 CurRec^.ExtraData and utDeleteFile_SharedFileIn64BitKey <> 0)
             else
               SharedCountDidReachZero := False; //silence compiler
@@ -920,20 +931,20 @@ begin
               { Unregister if necessary }
               if not IsTempFile then begin
                 if CurRec^.ExtraData and utDeleteFile_RegisteredServer <> 0 then begin
-                  DoUnregisterServer(CurRec^.ExtraData and utDeleteFile_DisableFsRedir <> 0,
+                  LoggedUnregisterServer(CurRec^.ExtraData and utDeleteFile_DisableFsRedir <> 0,
                     CurRecData[0]);
                 end;
                 if CurRec^.ExtraData and utDeleteFile_RegisteredTypeLib <> 0 then begin
-                  DoUnregisterTypeLibrary(CurRec^.ExtraData and utDeleteFile_DisableFsRedir <> 0,
+                  LoggedUnregisterTypeLibrary(CurRec^.ExtraData and utDeleteFile_DisableFsRedir <> 0,
                     CurRecData[0]);
                 end;
               end;
               if CurRec^.ExtraData and utDeleteFile_IsFont <> 0 then begin
                 LogFmt('Unregistering font: %s', [CurRecData[2]]);
-                UnregisterFont(CurRecData[2], CurRecData[3]);
+                UnregisterFont(CurRecData[2], CurRecData[3], CurRec^.ExtraData and utDeleteFile_PerUserFont <> 0);
               end;
               if CurRec^.ExtraData and utDeleteFile_GacInstalled <> 0 then
-                DoUninstallAssembly(CurRecData[4]);
+                LoggedUninstallAssembly(CurRecData[4]);
             end;
           end
           else begin
@@ -982,7 +993,7 @@ begin
                  CurRecData[0], CurRec^.ExtraData and utDeleteDirOrFiles_IsDir <> 0,
                  CurRec^.ExtraData and utDeleteDirOrFiles_DeleteFiles <> 0,
                  CurRec^.ExtraData and utDeleteDirOrFiles_DeleteSubdirsAlso <> 0,
-                 False, DeleteDirProc, DeleteFileProc, @DeleteDirData) then begin
+                 False, LoggedDeleteDirProc, LoggedDeleteFileProc, @DeleteDirData) then begin
                 if (CurRec^.ExtraData and utDeleteDirOrFiles_IsDir <> 0) and
                    (CurRec^.ExtraData and utDeleteDirOrFiles_CallChangeNotify <> 0) then begin
                   SHChangeNotify(SHCNE_RMDIR, SHCNF_PATH, CurRecDataPChar[0], nil);
@@ -992,13 +1003,13 @@ begin
             end;
           utDeleteFile: begin
               { Note: Some of this code is duplicated in Step 2 }
-              FN := CurRecData[1];
-              if CallFromUninstaller or (FN = '') then
-                FN := CurRecData[0];
+              Filename := CurRecData[1];
+              if CallFromUninstaller or (Filename = '') then
+                Filename := CurRecData[0];
               if CallFromUninstaller or (CurRec^.ExtraData and utDeleteFile_ExistedBeforeInstall = 0) then begin
                 { Note: We handled utDeleteFile_SharedFile already }
                 if CallFromUninstaller or (CurRec^.ExtraData and utDeleteFile_Extra = 0) then
-                  if not FileDelete(FN, CurRec^.ExtraData and utDeleteFile_DisableFsRedir <> 0,
+                  if not LoggedFileDelete(Filename, CurRec^.ExtraData and utDeleteFile_DisableFsRedir <> 0,
                      CurRec^.ExtraData and utDeleteFile_CallChangeNotify <> 0,
                      CurRec^.ExtraData and utDeleteFile_RestartDelete <> 0,
                      CurRec^.ExtraData and utDeleteFile_RemoveReadOnly <> 0) then
@@ -1008,11 +1019,11 @@ begin
                 { We're running from Setup, and the file existed before
                   installation... }
                 if CurRec^.ExtraData and utDeleteFile_SharedFile <> 0 then
-                  DoDecrementSharedCount(CurRecData[0],
+                  LoggedDecrementSharedCount(CurRecData[0],
                     CurRec^.ExtraData and utDeleteFile_SharedFileIn64BitKey <> 0);
                 { Delete file only if it's a temp file }
-                if FN <> CurRecData[0] then
-                  if not FileDelete(FN, CurRec^.ExtraData and utDeleteFile_DisableFsRedir <> 0,
+                if Filename <> CurRecData[0] then
+                  if not LoggedFileDelete(Filename, CurRec^.ExtraData and utDeleteFile_DisableFsRedir <> 0,
                      CurRec^.ExtraData and utDeleteFile_CallChangeNotify <> 0,
                      CurRec^.ExtraData and utDeleteFile_RestartDelete <> 0,
                      CurRec^.ExtraData and utDeleteFile_RemoveReadOnly <> 0) then
@@ -1021,46 +1032,75 @@ begin
             end;
           utDeleteGroupOrItem: ;   { dummy - no longer supported }
           utIniDeleteEntry: begin
-              DeleteIniEntry(CurRecData[1], CurRecData[2], CurRecData[0]); 
+              Section := CurRecData[1];
+              Key := CurRecData[2];
+              Filename := CurRecData[0];
+              LogFmt('Deleting INI entry: %s in section %s in %s', [Key, Section, GetLogIniFilename(Filename)]);
+              DeleteIniEntry(Section, Key, Filename);
             end;
           utIniDeleteSection: begin
+              Section := CurRecData[1];
+              Filename := CurRecData[0];
               if (CurRec^.ExtraData and utIniDeleteSection_OnlyIfEmpty = 0) or
-                 IsIniSectionEmpty(CurRecData[1], CurRecData[0]) then
-                DeleteIniSection(CurRecData[1], CurRecData[0]);
+                 IsIniSectionEmpty(Section, Filename) then begin
+                LogFmt('Deleting INI section: %s in %s', [Section, GetLogIniFilename(Filename)]);
+                DeleteIniSection(Section, Filename);
+              end;
             end;
           utRegDeleteEntireKey: begin
               CrackRegExtraData(CurRec^.ExtraData, RegView, RootKey);
-              if not (RegDeleteKeyIncludingSubkeys(RegView, RootKey, CurRecDataPChar[0]) in
-                 [ERROR_SUCCESS, ERROR_FILE_NOT_FOUND]) then
+              Subkey := CurRecDataPChar[0];
+              LogFmt('Deleting registry key: %s\%s', [GetRegRootKeyName(RootKey), Subkey]);
+              ErrorCode := RegDeleteKeyIncludingSubkeys(RegView, RootKey, Subkey);
+              if not (ErrorCode in [ERROR_SUCCESS, ERROR_FILE_NOT_FOUND]) then begin
+                LogFmt('Deletion failed (%d).', [ErrorCode]);
                 Result := False;
+              end;
             end;
           utRegClearValue: begin
               CrackRegExtraData(CurRec^.ExtraData, RegView, RootKey);
-              if RegOpenKeyExView(RegView, RootKey, CurRecDataPChar[0], 0, KEY_SET_VALUE, K) = ERROR_SUCCESS then begin
-                if RegSetValueEx(K, CurRecDataPChar[1], 0, REG_SZ, @NullChar,
-                   SizeOf(NullChar)) <> ERROR_SUCCESS then
+              Subkey := CurRecDataPChar[0];
+              ValueName := CurRecDataPChar[1];
+              LogFmt('Clearing registry value: %s\%s\%s', [GetRegRootKeyName(RootKey), Subkey, ValueName]);
+              if RegOpenKeyExView(RegView, RootKey, Subkey, 0, KEY_SET_VALUE, K) = ERROR_SUCCESS then begin
+                ErrorCode := RegSetValueEx(K, ValueName, 0, REG_SZ, @NullChar, SizeOf(NullChar));
+                if ErrorCode <> ERROR_SUCCESS then begin
+                  LogFmt('RegSetValueEx failed (%d).', [ErrorCode]);
                   Result := False;
+                end;
                 RegCloseKey(K);
               end;
             end;
           utRegDeleteKeyIfEmpty: begin
               CrackRegExtraData(CurRec^.ExtraData, RegView, RootKey);
-              if not (RegDeleteKeyIfEmpty(RegView, RootKey, CurRecDataPChar[0]) in
-                 [ERROR_SUCCESS, ERROR_FILE_NOT_FOUND, ERROR_DIR_NOT_EMPTY]) then
+              Subkey := CurRecDataPChar[0];
+              LogFmt('Deleting empty registry key: %s\%s', [GetRegRootKeyName(RootKey), Subkey]);
+              ErrorCode := RegDeleteKeyIfEmpty(RegView, RootKey, Subkey);
+              if ErrorCode = ERROR_DIR_NOT_EMPTY then
+                Log('Deletion skipped (not empty).')
+              else if not (ErrorCode in [ERROR_SUCCESS, ERROR_FILE_NOT_FOUND]) then begin
+                LogFmt('Deletion failed (%d).', [ErrorCode]);
                 Result := False;
+              end;
             end;
           utRegDeleteValue: begin
               CrackRegExtraData(CurRec^.ExtraData, RegView, RootKey);
-              if RegOpenKeyExView(RegView, RootKey, CurRecDataPChar[0], 0,
-                 KEY_QUERY_VALUE or KEY_SET_VALUE, K) = ERROR_SUCCESS then begin
-                if RegValueExists(K, CurRecDataPChar[1]) and
-                   (RegDeleteValue(K, CurRecDataPChar[1]) <> ERROR_SUCCESS) then
-                  Result := False;
+              Subkey := CurRecDataPChar[0];
+              ValueName := CurRecDataPChar[1];
+              LogFmt('Deleting registry value: %s\%s\%s', [GetRegRootKeyName(RootKey), Subkey, ValueName]);
+              if RegOpenKeyExView(RegView, RootKey, Subkey, 0, KEY_QUERY_VALUE or KEY_SET_VALUE, K) = ERROR_SUCCESS then begin
+                if RegValueExists(K, ValueName) then begin
+                  ErrorCode := RegDeleteValue(K, ValueName);
+                  if ErrorCode <> ERROR_SUCCESS then begin
+                    LogFmt('RegDeleteValue failed (%d).', [ErrorCode]);
+                    Result := False;
+                  end;
+                end;
                 RegCloseKey(K);
               end;
             end;
           utDecrementSharedCount: begin
-              DoDecrementSharedCount(CurRecData[0],
+              LoggedDecrementSharedCount(CurRecData[0],
                 CurRec^.ExtraData and utDecrementSharedCount_64BitKey <> 0);
             end;
           utRefreshFileAssoc:
@@ -1087,7 +1127,7 @@ begin
       DeleteUninstallDataFilesProc;
       { Now that uninstall data is deleted, try removing the directories it
         was in that couldn't be deleted before. }
-      ProcessDirsNotRemoved;
+      LoggedProcessDirsNotRemoved;
     end;
   finally
     DeleteDirData.DirsNotRemoved.Free;

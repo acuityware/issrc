@@ -1,6 +1,7 @@
 ; *** Inno Setup version 6.0.0+ Korean messages ***
 ;
-; ▒ 6.0.0+ Translator: SungDong Kim (acroedit@gmail.com)
+; ▒ 6.2.0+ Translator: Logan.Hwang (logan.hwang@blueant.kr)
+; ▒ 6.0.3+ Translator: SungDong Kim (acroedit@gmail.com)
 ; ▒ 5.5.3+ Translator: Domddol (domddol@gmail.com)
 ; ▒ Translation date: MAR 04, 2014
 ; ▒ Contributors: Hansoo KIM (iryna7@gmail.com), Woong-Jae An (a183393@hanmail.net)
@@ -154,6 +155,7 @@ WizardSelectDir=설치 위치 선택
 SelectDirDesc=[name]의 설치 위치를 선택하십시오.
 SelectDirLabel3=다음 폴더에 [name]을(를) 설치합니다.
 SelectDirBrowseLabel=계속하려면 "다음"을, 다른 폴더를 선택하려면 "찾아보기"를 클릭하십시오.
+DiskSpaceGBLabel=이 프로그램은 최소 [gb] GB의 디스크 여유 공간이 필요합니다.
 DiskSpaceMBLabel=이 프로그램은 최소 [mb] MB의 디스크 여유 공간이 필요합니다.
 CannotInstallToNetworkDrive=네트워크 드라이브에 설치할 수 없습니다.
 CannotInstallToUNCPath=UNC 경로에 설치할 수 없습니다.
@@ -181,6 +183,7 @@ NoUninstallWarningTitle=구성 요소가 존재합니다
 NoUninstallWarning=다음 구성 요소가 이미 설치되어 있습니다:%n%n%1%n%n위 구성 요소을 선택하지 않으면, 프로그램 제거시 이 구성 요소들은 제거되지 않을 겁니다.%n%n그래도 계속하시겠습니까?
 ComponentSize1=%1 KB
 ComponentSize2=%1 MB
+ComponentsDiskSpaceGBLabel=현재 선택은 최소 [gb] GB의 디스크 여유 공간이 필요합니다.
 ComponentsDiskSpaceMBLabel=현재 선택은 최소 [mb] MB의 디스크 여유 공간이 필요합니다.
 
 ; *** "Select Additional Tasks" wizard page
@@ -211,6 +214,19 @@ ReadyMemoComponents=선택한 구성 요소:
 ReadyMemoGroup=시작 메뉴 폴더:
 ReadyMemoTasks=추가 작업:
 
+; *** TDownloadWizardPage wizard page and DownloadTemporaryFile
+DownloadingLabel=추가 파일 다운로드중...
+ButtonStopDownload=다운로드 중지(&S)
+StopDownload=다운로드를 중지하시겠습니까?
+ErrorDownloadAborted=다운로드를 중단했습니다.
+ErrorDownloadFailed=다운로드에 실패했습니다: %1 %2
+ErrorDownloadSizeFailed=다운로드 파일의 사이즈를 알 수 없습니다: %1 %2
+ErrorFileHash1=파일 해시에 실패했습니다: %1
+ErrorFileHash2=잘못된 파일 해시: 예상 값 %1, 실제 값 %2
+ErrorProgress=잘못된 진행 상황: %1 / %2
+ErrorFileSize=잘못된 파일 크기: 예상 값 %1, 실제 값 %2
+
+
 ; *** "Preparing to Install" wizard page
 WizardPreparing=설치 준비 중
 PreparingDesc=귀하의 컴퓨터에 [name] 설치를 준비하는 중입니다.
@@ -221,6 +237,7 @@ ApplicationsFound2=다음 응용프로그램이 설치 업데이트가 필요한 파일을 사용하고 있
 CloseApplications=자동으로 응용프로그램을 종료함(&A)
 DontCloseApplications=응용프로그램을 종료하지 않음(&D)
 ErrorCloseApplications=설치 마법사가 응용프로그램을 자동으로 종료할 수 없습니다, 계속하기 전에 설치 업데이트가 필요한 파일을 사용하고 있는 응용프로그램을 모두 종료하시기 바랍니다.
+PrepareToInstallNeedsRestart=설치 마법사는 귀하의 컴퓨터를 재시작해야 합니다. [name] 설치를 완료하기 위해 컴퓨터를 다시 시작한 후에 설치 마법사를 다시 실행해 주십시오.%n%n지금 다시 시작하시겠습니까?
 
 ; *** "Installing" wizard page
 WizardInstalling=설치 중
@@ -292,8 +309,16 @@ ExistingFileReadOnly2=기존 파일은 읽기 전용이기때문에 대체할 수 없습니다.
 ExistingFileReadOnlyRetry=읽기 전용 속성을 해제하고 다시 시도하려면(&R)
 ExistingFileReadOnlyKeepExisting=기존 파일을 유지(&K)
 ErrorReadingExistingDest=기존 파일을 읽는 동안 오류 발생:
-FileExists=파일이 이미 존재합니다.%n%n파일을 덮어쓰시겠습니까?
-ExistingFileNewer=기존 파일이 설치하려고 하는 파일보다 새 파일입니다, 기존 파일을 유지하시기 바랍니다.%n%n기존 파일을 유지하시겠습니까?
+FileExistsSelectAction=처리 방법을 선택하세요.
+FileExists2=파일이 이미 존재합니다.
+FileExistsOverwriteExisting=기존 파일을 덮어씁니다(&O)
+FileExistsKeepExisting=기존 파일을 유지합니다(&K)
+FileExistsOverwriteOrKeepAll=이후의 작업에 대해 동일한 처리를 수행합니다.(&D)
+ExistingFileNewerSelectAction=처리 방법을 선택하세요.
+ExistingFileNewer2=기존 파일이 설치하려고 하는 파일보다 새 파일입니다
+ExistingFileNewerOverwriteExisting=기존 파일을 덮어씁니다(&O)
+ExistingFileNewerKeepExisting=기존 파일을 유지합니다(&K) (추천)
+ExistingFileNewerOverwriteOrKeepAll=이후의 작업에 대해 동일한 처리를 수행합니다(&D)
 ErrorChangingAttr=기존 파일의 속성을 변경하는 동안 오류 발생:
 ErrorCreatingTemp=대상 폴더에 파일을 만드는 동안 오류 발생:
 ErrorReadingSource=원본 파일을 읽는 동안 오류 발생:

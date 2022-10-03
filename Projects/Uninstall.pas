@@ -2,13 +2,11 @@ unit Uninstall;
 
 {
   Inno Setup
-  Copyright (C) 1997-2012 Jordan Russell
+  Copyright (C) 1997-2020 Jordan Russell
   Portions by Martijn Laan
   For conditions of distribution and use, see LICENSE.TXT.
 
   Uninstaller
-
-  NOTE: This unit was derived from Uninst.dpr rev 1.38.
 }
 
 interface
@@ -41,8 +39,8 @@ const
 
 var
   UninstallExitCode: DWORD = 1;
-  UninstExeFile, UninstDataFile, UninstMsgFile: String;
-  UninstLogFile: TFile;
+  UninstExeFilename, UninstDataFilename, UninstMsgFilename: String;
+  UninstDataFile: TFile;
   UninstLog: TExtUninstallLog = nil;
   Title: String;
   DidRespawn, SecondPhase: Boolean;
@@ -205,16 +203,16 @@ begin
   { Truncate the .dat file to zero bytes just before relinquishing exclusive
     access to it }
   try
-    UninstLogFile.Seek(0);
-    UninstLogFile.Truncate;
+    UninstDataFile.Seek(0);
+    UninstDataFile.Truncate;
   except
     { ignore any exceptions, just in case }
   end;
-  FreeAndNil(UninstLogFile);
+  FreeAndNil(UninstDataFile);
 
   { Delete the .dat and .msg files }
-  DeleteFile(UninstDataFile);
-  DeleteFile(UninstMsgFile);
+  DeleteFile(UninstDataFilename);
+  DeleteFile(UninstMsgFilename);
 
   { Tell the first phase to terminate, then delete its .exe }
   if FirstPhaseWnd <> 0 then begin
@@ -240,7 +238,7 @@ begin
       Sleep(500);
   end;
   UninstallExitCode := 0;
-  DelayDeleteFile(False, UninstExeFile, 13, 50, 250);
+  DelayDeleteFile(False, UninstExeFilename, 13, 50, 250);
   if Debugging then
     DebugNotifyUninstExe('');
   { Pre-Windows 2000 Add/Remove Programs will try to bring itself to the
@@ -250,36 +248,38 @@ end;
 
 procedure ProcessCommandLine;
 var
-  WantToSuppressMsgBoxes: Boolean;
+  WantToSuppressMsgBoxes, ParamIsAutomaticInternal: Boolean;
   I: Integer;
   ParamName, ParamValue: String;
 begin
   WantToSuppressMsgBoxes := False;
 
+  { NewParamsForCode will hold all params except automatic internal ones like /SECONDPHASE= and /DEBUGWND=
+    Actually currently only needed in the second phase, but setting always anyway
+    Also see Main.InitializeSetup }
+  NewParamsForCode.Add(NewParamStr(0));
+
   for I := 1 to NewParamCount do begin
     SplitNewParamStr(I, ParamName, ParamValue);
+    ParamIsAutomaticInternal := False;
     if CompareText(ParamName, '/Log') = 0 then begin
       EnableLogging := True;
       LogFilename := '';
-    end
-    else
-    if CompareText(ParamName, '/Log=') = 0 then begin
+    end else if CompareText(ParamName, '/Log=') = 0 then begin
       EnableLogging := True;
       LogFilename := ParamValue;
-    end
-    else
-    if CompareText(ParamName, '/INITPROCWND=') = 0 then begin
+    end else if CompareText(ParamName, '/INITPROCWND=') = 0 then begin
+      ParamIsAutomaticInternal := True;
       DidRespawn := True;
       InitialProcessWnd := StrToInt(ParamValue);
-    end
-    else
-    if CompareText(ParamName, '/SECONDPHASE=') = 0 then begin
+    end else if CompareText(ParamName, '/SECONDPHASE=') = 0 then begin
+      ParamIsAutomaticInternal := True;
       SecondPhase := True;
-      UninstExeFile := ParamValue;
-    end
-    else if CompareText(ParamName, '/FIRSTPHASEWND=') = 0 then
+      UninstExeFilename := ParamValue;
+    end else if CompareText(ParamName, '/FIRSTPHASEWND=') = 0 then begin
+      ParamIsAutomaticInternal := True;
       FirstPhaseWnd := StrToInt(ParamValue)
-    else if CompareText(ParamName, '/SILENT') = 0 then
+    end else if CompareText(ParamName, '/SILENT') = 0 then
       Silent := True
     else if CompareText(ParamName, '/VERYSILENT') = 0 then
       VerySilent := True
@@ -287,8 +287,12 @@ begin
       NoRestart := True
     else if CompareText(ParamName, '/SuppressMsgBoxes') = 0 then
       WantToSuppressMsgBoxes := True
-    else if CompareText(ParamName, '/DEBUGWND=') = 0 then
+    else if CompareText(ParamName, '/DEBUGWND=') = 0 then begin
+      ParamIsAutomaticInternal := True;
       DebugWnd := StrToInt(ParamValue);
+    end;
+    if not ParamIsAutomaticInternal then
+      NewParamsForCode.Add(NewParamStr(I));
   end;
 
   if WantToSuppressMsgBoxes and (Silent or VerySilent) then
@@ -317,12 +321,12 @@ function OpenUninstDataFile(const AAccess: TFileAccess): TFile;
 begin
   Result := nil;  { avoid warning }
   try
-    Result := TFile.Create(UninstDataFile, fdOpenExisting, AAccess, fsNone);
+    Result := TFile.Create(UninstDataFilename, fdOpenExisting, AAccess, fsNone);
   except
     on E: EFileError do begin
       SetLastError(E.ErrorCode);
       RaiseLastError(FmtSetupMessage1(msgUninstallOpenError,
-        UninstDataFile));
+        UninstDataFilename));
     end;
   end;
 end;
@@ -339,7 +343,7 @@ begin
 
   F := OpenUninstDataFile(faRead);
   try
-    Flags := ReadUninstallLogFlags(F, UninstDataFile);
+    Flags := ReadUninstallLogFlags(F, UninstDataFilename);
   finally
     F.Free;
   end;
@@ -350,7 +354,7 @@ begin
     SetWindowPos(Application.Handle, 0, 0, 0, 0, 0, SWP_NOSIZE or
       SWP_NOMOVE or SWP_NOZORDER or SWP_NOACTIVATE or SWP_HIDEWINDOW);
     try
-      RespawnSelfElevated(UninstExeFile,
+      RespawnSelfElevated(UninstExeFilename,
         Format('/INITPROCWND=$%x ', [Application.Handle]) + GetCmdTail,
         UninstallExitCode);
     except
@@ -365,21 +369,25 @@ end;
 
 procedure RunFirstPhase;
 var
-  TempFile: String;
+  TempDir, TempFile: String;
+  TempDirExisted: Boolean;
   Wnd: HWND;
   ProcessHandle: THandle;
 begin
-  { Copy self to TEMP directory with a name like _iu14D2N.tmp. The
-    actual uninstallation process must be done from somewhere outside
-    the application directory since EXE's can't delete themselves while
-    they are running. }
-  if not GenerateNonRandomUniqueFilename(GetTempDir, TempFile) then
+  { Copy self to a subdirectory of the TEMP directory with a name like
+    _iu14D2N.tmp. The actual uninstallation process must be done from
+    somewhere outside the application directory since EXE's can't delete
+    themselves while they are running. }
+  TempDirExisted := GenerateNonRandomUniqueTempDir(GetTempDir, TempDir);
+  TempFile := AddBackslash(TempDir) + '_unins.tmp';
+  if not TempDirExisted then
     try
       RestartReplace(False, TempFile, '');
+      RestartReplace(False, TempDir, '');
     except
       { ignore exceptions }
     end;
-  if not CopyFile(PChar(UninstExeFile), PChar(TempFile), False) then
+  if not CopyFile(PChar(UninstExeFilename), PChar(TempFile), False) then
     RaiseLastError(SetupMessages[msgLdrCannotCreateTemp]);
   { Don't want any attribute like read-only transferred }
   SetFileAttributes(PChar(TempFile), FILE_ATTRIBUTE_NORMAL);
@@ -506,17 +514,17 @@ begin
       end;
     end;
     Log('Setup version: ' + SetupTitle + ' version ' + SetupVersion);
-    Log('Original Uninstall EXE: ' + UninstExeFile);
-    Log('Uninstall DAT: ' + UninstDataFile);
+    Log('Original Uninstall EXE: ' + UninstExeFilename);
+    Log('Uninstall DAT: ' + UninstDataFilename);
     Log('Uninstall command line: ' + GetCmdTail);
     LogWindowsVersion;
 
     { Open the .dat file for read access }
-    UninstLogFile := OpenUninstDataFile(faRead);
+    UninstDataFile := OpenUninstDataFile(faRead);
 
     { Load contents of the .dat file }
     UninstLog := TExtUninstallLog.Create;
-    UninstLog.Load(UninstLogFile, UninstDataFile);
+    UninstLog.Load(UninstDataFile, UninstDataFilename);
 
     Title := FmtSetupMessage1(msgUninstallAppFullTitle, UninstLog.AppName);
 
@@ -540,8 +548,8 @@ begin
     { Reopen the .dat file for exclusive, read/write access and keep it
       open for the duration of the uninstall process to prevent a second
       instance of the same uninstaller from running. }
-    FreeAndNil(UninstLogFile);
-    UninstLogFile := OpenUninstDataFile(faReadWrite);
+    FreeAndNil(UninstDataFile);
+    UninstDataFile := OpenUninstDataFile(faReadWrite);
 
     if not UninstLog.ExtractLatestRecData(utCompiledCode,
          SetupBinVersion {$IFDEF UNICODE} or Longint($80000000) {$ENDIF}, CompiledCodeData) then
@@ -580,7 +588,7 @@ begin
       InitMainNonSHFolderConsts;
       LoadSHFolderDLL;
 
-      UninstallExeFilename := UninstExeFile;
+      UninstallExeFilename := UninstExeFilename;
       UninstallExpandedAppId := UninstLog.AppId;
       UninstallSilent := Silent or VerySilent;
 
@@ -591,6 +599,7 @@ begin
       AssignCustomMessages(Pointer(CompiledCodeData[6]), Length(CompiledCodeData[6])*SizeOf(CompiledCodeData[6][1]));
 
       CodeRunner := TScriptRunner.Create();
+      CodeRunner.NamingAttribute := CodeRunnerNamingAttribute;
       CodeRunner.OnLog := CodeRunnerOnLog;
       CodeRunner.OnLogFmt := CodeRunnerOnLogFmt;
       CodeRunner.OnDllImport := CodeRunnerOnDllImport;
@@ -732,7 +741,7 @@ begin
     UnloadSHFolderDLL;
     RemoveTempInstallDir;
     UninstLog.Free;
-    FreeAndNil(UninstLogFile);
+    FreeAndNil(UninstDataFile);
   end;
 
   if RestartSystem then begin
@@ -771,23 +780,23 @@ begin
 
     SetCurrentDir(GetSystemDir);
 
-    UninstExeFile := NewParamStr(0);
+    UninstExeFilename := NewParamStr(0);
     ProcessCommandLine;  { note: may change UninstExeFile }
-    UninstDataFile := PathChangeExt(UninstExeFile, '.dat');
-    UninstMsgFile := PathChangeExt(UninstExeFile, '.msg');
+    UninstDataFilename := PathChangeExt(UninstExeFilename, '.dat');
+    UninstMsgFilename := PathChangeExt(UninstExeFilename, '.msg');
 
     { Initialize messages }
-    F := TFile.Create(UninstExeFile, fdOpenExisting, faRead, fsRead);
+    F := TFile.Create(UninstExeFilename, fdOpenExisting, faRead, fsRead);
     try
       F.Seek(F.Size.Lo - SizeOf(UninstallerMsgTail));
       F.ReadBuffer(UninstallerMsgTail, SizeOf(UninstallerMsgTail));
       if UninstallerMsgTail.ID <> UninstallerMsgTailID then begin
         { No valid UninstallerMsgTail record found at the end of the EXE;
           load messages from an external .msg file. }
-        LoadSetupMessages(UninstMsgFile, 0, True);
+        LoadSetupMessages(UninstMsgFilename, 0, True);
       end
       else
-        LoadSetupMessages(UninstExeFile, UninstallerMsgTail.Offset, True);
+        LoadSetupMessages(UninstExeFilename, UninstallerMsgTail.Offset, True);
     finally
       F.Free;
     end;
@@ -802,8 +811,8 @@ begin
     Application.Title := SetupMessages[msgUninstallAppTitle];
 
     { Verify that uninstall data file exists }
-    if not NewFileExists(UninstDataFile) then begin
-      LoggedMessageBoxFmt1(msgUninstallNotFound, UninstDataFile,
+    if not NewFileExists(UninstDataFilename) then begin
+      LoggedMessageBoxFmt1(msgUninstallNotFound, UninstDataFilename,
         SetupMessages[msgUninstallAppTitle], MB_ICONSTOP or MB_OK, True, IDOK);
       Abort;
     end;

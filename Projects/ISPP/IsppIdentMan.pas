@@ -1,6 +1,11 @@
 {
   Inno Setup Preprocessor
   Copyright (C) 2001-2002 Alex Yackimoff
+
+  Inno Setup
+  Copyright (C) 1997-2020 Jordan Russell
+  Portions by Martijn Laan
+  For conditions of distribution and use, see LICENSE.TXT.
 }
 
 unit IsppIdentMan;
@@ -95,7 +100,7 @@ type
     procedure DefineVariable(const Name: string; Index: Integer;
       const Value: TIsppVariant; Scope: TDefineScope);
     procedure Delete(const Name: string; Scope: TDefineScope);
-    procedure DimVariable(const Name: string; Length: Integer; Scope: TDefineScope; ReDim: Boolean);
+    procedure DimVariable(const Name: string; Length: Integer; Scope: TDefineScope; var ReDim: Boolean);
     function GetIdent(const Name: string; out CallContext: ICallContext): TIdentType;
     function TypeOf(const Name: string): Byte;
     function DimOf(const Name: String): Integer;
@@ -113,7 +118,7 @@ const
 
 implementation
 
-uses Windows, Types, IsppTranslate, CParser, IsppParser, IsppVarUtils, IsppConsts,
+uses Windows, Types, IsppPreprocessor, CTokenizer, IsppParser, IsppVarUtils, IsppConsts,
   IsppSessions;
 
 const
@@ -546,7 +551,7 @@ type
   protected
     constructor Create(Value: PIsppVariant);
     function GetType: TIsppVarType; stdcall;
-    function GetAsInt: Integer; stdcall;
+    function GetAsInt: Int64; stdcall;
     function GetAsString(Buf: PChar; BufSize: Integer): Integer; stdcall;
   end;
 
@@ -555,7 +560,7 @@ begin
   FValue := Value
 end;
 
-function TFuncParam.GetAsInt: Integer;
+function TFuncParam.GetAsInt: Int64;
 begin
   Result := FValue^.AsInt
 end;
@@ -593,7 +598,7 @@ type
     function InternalGet(Index: Integer): PIsppVariant;
     function ResPtr: PIsppVariant;
     { IIsppFuncResult }
-    procedure SetAsInt(Value: Integer); stdcall;
+    procedure SetAsInt(Value: Int64); stdcall;
     procedure SetAsString(Value: PChar); stdcall;
     procedure SetAsNull; stdcall;
     procedure Error(Message: PChar); stdcall;
@@ -675,7 +680,7 @@ begin
   Result := @FResult
 end;
 
-procedure TFuncCallContext.SetAsInt(Value: Integer);
+procedure TFuncCallContext.SetAsInt(Value: Int64);
 begin
   MakeInt(FResult, Value)
 end;
@@ -830,7 +835,7 @@ begin
 end;
 
 procedure TIdentManager.DimVariable(const Name: string; Length: Integer;
-  Scope: TDefineScope; ReDim: Boolean);
+  Scope: TDefineScope; var ReDim: Boolean);
 var
   V, VOld: PVariable;
   I, ReDimIndex: Integer;
@@ -845,6 +850,7 @@ begin
          ((PIdent(FVarMan[ReDimIndex]).IdentType <> itVariable) or
           (PVariable(FVarMan[ReDimIndex]).Dim = 0)) then
         ReDimIndex := -1; //not a variable or not an array, #dim normally
+      ReDim := ReDimIndex <> -1;
     end else
       ReDimIndex := -1;
 

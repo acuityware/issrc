@@ -10,6 +10,7 @@ rem
 rem  Calls setup-sign.bat if it exists, else creates setup.exe without signing
 rem
 rem  This batch files does the following things:
+rem  -Compile ISHelpGen
 rem  -Compile ISPP.chm
 rem  -Compile ISetup.chm
 rem  -Compile Inno Setup
@@ -19,12 +20,24 @@ rem  Once done the installer can be found in Output
 
 setlocal
 
-set VER=6.0.2
+set VER=6.2.1
 
 echo Building Inno Setup %VER%...
 echo.
 
 cd /d %~dp0
+
+if "%1%"=="setup" goto setup
+if not "%1%"=="" goto failed
+
+cd ishelp\ishelpgen
+if errorlevel 1 goto failed
+call .\compile.bat
+if errorlevel 1 goto failed
+cd ..\..
+if errorlevel 1 goto failed
+echo Compiling ISHelpGen done
+pause
 
 cd projects\ispp\help
 if errorlevel 1 goto failed
@@ -49,11 +62,12 @@ if errorlevel 1 goto failed
 echo Compiling Inno Setup done
 pause
 
+:setup
 echo - Setup.exe
 if exist .\setup-sign.bat (
   call .\setup-sign.bat
 ) else (
-  files\iscc setup.iss /q
+  files\iscc setup.iss
 )
 if errorlevel 1 goto failed
 echo - Renaming files

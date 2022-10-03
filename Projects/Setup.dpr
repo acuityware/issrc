@@ -2,7 +2,7 @@ program Setup;
 
 {
   Inno Setup
-  Copyright (C) 1997-2019 Jordan Russell
+  Copyright (C) 1997-2020 Jordan Russell
   Portions by Martijn Laan
   For conditions of distribution and use, see LICENSE.TXT.
 
@@ -10,18 +10,18 @@ program Setup;
 }
 
 {$SetPEFlags 1} 
-{$SETPEOSVERSION 6.0}
-{$SETPESUBSYSVERSION 6.0}
+{$SETPEOSVERSION 6.1}
+{$SETPESUBSYSVERSION 6.1}
 {$WEAKLINKRTTI ON}
 
 uses
   SafeDLLPath in 'SafeDLLPath.pas',
   XPTheme in 'XPTheme.pas',
-  D2009Win2kFix in 'D2009Win2kFix.pas',
   Forms,
   Windows,
   SysUtils,
   Messages,
+  RichEditViewer,
   CmnFunc in 'CmnFunc.pas',
   CmnFunc2 in 'CmnFunc2.pas',
   Main in 'Main.pas' {MainForm},
@@ -273,6 +273,7 @@ begin
     SetErrorMode(SEM_FAILCRITICALERRORS);
     DisableWindowGhosting;
     Application.HookMainWindow(TDummyClass.AntiShutdownHook);
+    TRichEditViewer.CustomShellExecute := ShellExecuteAsOriginalUser;
     SelectMode; { Only returns if we should run as Setup }
   except
     { Halt on any exception }
@@ -301,7 +302,7 @@ begin
     try
       DeinitSetup(False);
     except
-      { don't propogate any exceptions, so that Halt is always called }
+      { don't propagate any exceptions, so that Halt is always called }
       ShowExceptionMsg;
     end;
     if SetupExitCode <> 0 then

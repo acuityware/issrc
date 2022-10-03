@@ -23,6 +23,7 @@ uses
   CompForm in 'CompForm.pas' {CompileForm},
   CmnFunc in 'CmnFunc.pas',
   CmnFunc2 in 'CmnFunc2.pas',
+  CompFunc in 'CompFunc.pas',
   CompMsgs in 'CompMsgs.pas',
   CompInt in 'CompInt.pas',
   CompOptions in 'CompOptions.pas' {OptionsForm},
@@ -30,15 +31,18 @@ uses
   CompWizard in 'CompWizard.pas' {WizardForm},
   CompWizardFile in 'CompWizardFile.pas' {WizardFileForm},
   CompFileAssoc in 'CompFileAssoc.pas',
-  TmSchemaISX in '..\Components\TmSchemaISX.pas',
-  UxThemeISX in '..\Components\UxThemeISX.pas',
+  TmSchema in '..\Components\TmSchema.pas',
+  UxTheme in '..\Components\UxTheme.pas',
   DebugStruct in 'DebugStruct.pas',
   BrowseFunc in 'BrowseFunc.pas',
   CompSignTools in 'CompSignTools.pas' {SignToolsForm},
+  CompInputQueryCombo in 'CompInputQueryCombo.pas',
   ScintInt in '..\Components\ScintInt.pas',
   ScintEdit in '..\Components\ScintEdit.pas',
   ScintStylerInnoSetup in '..\Components\ScintStylerInnoSetup.pas',
-  ModernColors in '..\Components\ModernColors.pas';
+  ModernColors in '..\Components\ModernColors.pas',
+  CompMessageBoxDesigner in 'CompMessageBoxDesigner.pas' {MBDForm},
+  CompScintEdit in 'CompScintEdit.pas';
 
 {$R *.res}
 {$R Compil32.manifest.res}

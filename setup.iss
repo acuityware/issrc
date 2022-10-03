@@ -1,40 +1,46 @@
-; Inno Setup
-; Copyright (C) 1997-2019 Jordan Russell. All rights reserved.
-; Portions by Martijn Laan
-; For conditions of distribution and use, see LICENSE.TXT.
-;
-; Setup script
+; -- Setup.iss --
+; Inno Setup's own Setup script
 
-#include "donate.iss"
+; Inno Setup
+; Copyright (C) 1997-2022 Jordan Russell. All rights reserved.
+; Portions Copyright (C) 2000-2022 Martijn Laan. All rights reserved.
+; For conditions of distribution and use, see LICENSE.TXT.
+
+#include "iscrypt.iss"
+
+#include "isdonateandmail.iss"
+
+#include "isportable.iss"
 
 [Setup]
 AppName=Inno Setup
-AppId=Inno Setup 6
-AppVersion=6.0.2
+AppId={code:GetAppId|Inno Setup 6}
+AppVersion=6.2.1
 AppPublisher=jrsoftware.org
-AppPublisherURL=http://www.innosetup.com/
-AppSupportURL=http://www.innosetup.com/
-AppUpdatesURL=http://www.innosetup.com/
-VersionInfoCopyright=Copyright (C) 1997-2019 Jordan Russell. Portions Copyright (C) 2000-2019 Martijn Laan.
+AppPublisherURL=https://www.innosetup.com/
+AppSupportURL=https://www.innosetup.com/
+AppUpdatesURL=https://www.innosetup.com/
+VersionInfoCopyright=Copyright (C) 1997-2022 Jordan Russell. Portions Copyright (C) 2000-2022 Martijn Laan.
 AppMutex=InnoSetupCompilerAppMutex,Global\InnoSetupCompilerAppMutex
 SetupMutex=InnoSetupCompilerSetupMutex,Global\InnoSetupCompilerSetupMutex
 WizardStyle=modern
-DefaultDirName={autopf}\Inno Setup 6
+DefaultDirName={code:GetDefaultDirName|Inno Setup 6}
 DefaultGroupName=Inno Setup 6
-PrivilegesRequiredOverridesAllowed=dialog
+PrivilegesRequiredOverridesAllowed=commandline
 AllowNoIcons=yes
 Compression=lzma2/max
 SolidCompression=yes
 Uninstallable=not PortableCheck
 UninstallDisplayIcon={app}\Compil32.exe
+UsePreviousLanguage=no
 LicenseFile=license.txt
 TimeStampsInUTC=yes
 TouchDate=none
 TouchTime=00:00
-WizardImageFile=compiler:WizModernImage-IS.bmp
-WizardSmallImageFile=compiler:WizModernSmallImage-IS.bmp
 #ifdef SIGNTOOL
+#ifndef NOSHA1SIGNTOOL
 SignTool=issigntool
+#endif
 SignTool=issigntool256
 SignedUninstaller=yes
 #endif
@@ -49,55 +55,68 @@ SignedUninstaller=yes
   //  Name: {#Name}; MessagesFile: "{#MessagesFile},{#CustomMessagesFile}"
   //#else
     #pragma message "Generating [Languages] entry with name " + Name + ": " + MessagesFile
-    Name: {#Name}; MessagesFile: "{#MessagesFile}"
+Name: {#Name}; MessagesFile: "{#MessagesFile}"
   //#endif
 #endsub
-
+//
 #define FindPathName
 #define FindHandle
 #define FindResult
-
+//
 #sub DoFindFiles
   #for {FindHandle = FindResult = FindFirst(FindPathName + "*.isl", 0); FindResult; FindResult = FindNext(FindHandle)} ProcessFoundLanguagesFile
   #if FindHandle
     #expr FindClose(FindHandle)
   #endif
 #endsub
-
+//
 #define FindFiles(str PathName) \
   FindPathName = PathName, \
   DoFindFiles
-
+//
 [Languages]
 Name: english; MessagesFile: "files\Default.isl"
-; Generate [Languages] entries for all official translations
+// Generate [Languages] entries for all official translations
 #expr FindFiles("files\Languages\")
 
 [Messages]
-HelpTextNote=/PORTABLE=1%nEnable portable mode.
+HelpTextNote=/PORTABLE=1%nEnable portable mode.%n/DOWNLOADISCRYPT=1%nEnable ISCrypt.dll download.
 ; Two "Setup" on the same line looks weird, so put a line break in between
 english.WelcomeLabel1=Welcome to the Inno Setup%nSetup Wizard
 
 [Tasks]
-Name: desktopicon; Description: "{cm:CreateDesktopIcon}"; Flags: unchecked
-Name: fileassoc; Description: "{cm:AssocFileExtension,Inno Setup,.iss}"
+Name: desktopicon; Description: "{cm:CreateDesktopIcon}"; Flags: unchecked; Check: not PortableCheck
+Name: fileassoc; Description: "{cm:AssocFileExtension,Inno Setup,.iss}"; Check: not PortableCheck
 
 [InstallDelete]
 ; Remove old ISPP files
 Type: files; Name: "{app}\ISCmplr.dls"
 Type: files; Name: "{app}\Builtins.iss"
 ; Remove desktop icon if needed
-Type: files; Name: {autodesktop}\Inno Setup Compiler.lnk; Tasks: not desktopicon
+Type: files; Name: {autodesktop}\Inno Setup Compiler.lnk; Tasks: not desktopicon; Check: not PortableCheck
 ; Remove old FAQ file
 Type: files; Name: "{app}\isfaq.htm"
 ; Remove old .islu files
 Type: files; Name: "{app}\Languages\*.islu"
 ; Remove translations in case any got demoted
 Type: files; Name: "{app}\Languages\*.isl"
+; Remove old ispack files
+Type: files; Name: "{app}\Ispack-setup.exe"
+Type: files; Name: "{app}\Examples\Setup.iss"
+Type: files; Name: "{app}\Examples\Setup.ico"
+Type: files; Name: "{app}\Examples\IsDonateAndMail.iss"
+Type: files; Name: "{app}\Examples\IsDonate.bmp"
+Type: files; Name: "{app}\Examples\IsMail.bmp"
+Type: files; Name: "{app}\Examples\IsPortable.iss"
+; Removed old/renamed wizard images
+Type: files; Name: "{app}\WizModernImage.bmp"
+Type: files; Name: "{app}\WizModernImage-IS.bmp"
+Type: files; Name: "{app}\WizModernSmallImage.bmp"
+Type: files; Name: "{app}\WizModernSmallImage-IS.bmp"
 
 [Files]
 Source: "license.txt"; DestDir: "{app}"; Flags: ignoreversion touch
-Source: "ishelp\Staging\ISetup.chm"; DestDir: "{app}"; Flags: ignoreversion touch
+Source: "files\ISetup.chm"; DestDir: "{app}"; Flags: ignoreversion touch
 Source: "files\Compil32.exe"; DestDir: "{app}"; Flags: ignoreversion signonce touch
 Source: "files\isscint.dll"; DestDir: "{app}"; Flags: ignoreversion signonce touch
 #ifndef isccexe
@@ -112,10 +131,11 @@ Source: "files\Setup.e32"; DestDir: "{app}"; Flags: ignoreversion touch
 Source: "files\SetupLdr.e32"; DestDir: "{app}"; Flags: ignoreversion touch
 Source: "files\Default.isl"; DestDir: "{app}"; Flags: ignoreversion touch
 Source: "files\Languages\*.isl"; DestDir: "{app}\Languages"; Flags: ignoreversion touch
-Source: "files\WizModernImage.bmp"; DestDir: "{app}"; Flags: ignoreversion touch
-Source: "files\WizModernImage-IS.bmp"; DestDir: "{app}"; Flags: ignoreversion touch
-Source: "files\WizModernSmallImage.bmp"; DestDir: "{app}"; Flags: ignoreversion touch
-Source: "files\WizModernSmallImage-IS.bmp"; DestDir: "{app}"; Flags: ignoreversion touch
+Source: "files\SetupClassicIcon.ico"; DestDir: "{app}"; Flags: ignoreversion touch
+Source: "files\WizClassicImage.bmp"; DestDir: "{app}"; Flags: ignoreversion touch
+Source: "files\WizClassicImage-IS.bmp"; DestDir: "{app}"; Flags: ignoreversion touch
+Source: "files\WizClassicSmallImage.bmp"; DestDir: "{app}"; Flags: ignoreversion touch
+Source: "files\WizClassicSmallImage-IS.bmp"; DestDir: "{app}"; Flags: ignoreversion touch
 Source: "files\iszlib.dll"; DestDir: "{app}"; Flags: ignoreversion signonce touch
 Source: "files\isunzlib.dll"; DestDir: "{app}"; Flags: ignoreversion signonce touch
 Source: "files\isbzip.dll"; DestDir: "{app}"; Flags: ignoreversion signonce touch
@@ -136,6 +156,7 @@ Source: "Examples\CodeAutomation2.iss"; DestDir: "{app}\Examples"; Flags: ignore
 Source: "Examples\CodeClasses.iss"; DestDir: "{app}\Examples"; Flags: ignoreversion touch
 Source: "Examples\CodeDlg.iss"; DestDir: "{app}\Examples"; Flags: ignoreversion touch
 Source: "Examples\CodeDll.iss"; DestDir: "{app}\Examples"; Flags: ignoreversion touch
+Source: "Examples\CodeDownloadFiles.iss"; DestDir: "{app}\Examples"; Flags: ignoreversion touch
 Source: "Examples\CodeExample1.iss"; DestDir: "{app}\Examples"; Flags: ignoreversion touch
 Source: "Examples\CodePrepareToInstall.iss"; DestDir: "{app}\Examples"; Flags: ignoreversion touch
 Source: "Examples\Components.iss"; DestDir: "{app}\Examples"; Flags: ignoreversion touch
@@ -165,7 +186,7 @@ Source: "Examples\MyDll\C#\MyDll.sln"; DestDir: "{app}\Examples\MyDll\C#"; Flags
 Source: "Examples\MyDll\C#\packages.config"; DestDir: "{app}\Examples\MyDll\C#"; Flags: ignoreversion touch
 Source: "Examples\MyDll\C#\Properties\AssemblyInfo.cs"; DestDir: "{app}\Examples\MyDll\C#\Properties"; Flags: ignoreversion touch
 Source: "Examples\MyDll\Delphi\MyDll.dpr"; DestDir: "{app}\Examples\MyDll\Delphi"; Flags: ignoreversion touch
-Source: "Projects\ISPP\Help\Staging\ISPP.chm"; DestDir: "{app}"; Flags: ignoreversion touch
+Source: "files\ISPP.chm"; DestDir: "{app}"; Flags: ignoreversion touch
 #ifndef isppdll
   #define isppdll "ispp.dll"
 #endif
@@ -173,12 +194,13 @@ Source: "files\{#isppdll}"; DestName: "ISPP.dll"; DestDir: "{app}"; Flags: ignor
 Source: "files\ISPPBuiltins.iss"; DestDir: "{app}"; Flags: ignoreversion touch
 
 [INI]
-Filename: "{app}\isfaq.url"; Section: "InternetShortcut"; Key: "URL"; String: "http://www.jrsoftware.org/isfaq.php" 
+Filename: "{app}\isfaq.url"; Section: "InternetShortcut"; Key: "URL"; String: "https://jrsoftware.org/isfaq.php" 
 
 [UninstallDelete]
 Type: files; Name: "{app}\isfaq.url"
 
 [Icons]
+; All these will be automatically skipped on portable mode, either because of NoIconsCheck being checked, or because of the desktopicon task being removed
 Name: "{group}\Inno Setup Compiler"; Filename: "{app}\Compil32.exe"; WorkingDir: "{app}"; AppUserModelID: "JR.InnoSetup.IDE.6"
 Name: "{group}\Inno Setup Documentation"; Filename: "{app}\ISetup.chm"
 Name: "{group}\Inno Setup Example Scripts"; Filename: "{app}\Examples\"
@@ -187,14 +209,10 @@ Name: "{group}\Inno Setup Revision History"; Filename: "{app}\whatsnew.htm"
 Name: "{autodesktop}\Inno Setup Compiler"; Filename: "{app}\Compil32.exe"; WorkingDir: "{app}"; AppUserModelID: "JR.InnoSetup.IDE.6"; Tasks: desktopicon
 
 [Run]
+; The /ASSOC line will be automatically skipped on portable mode, because of the fileassoc task being removed
 Filename: "{app}\Compil32.exe"; Parameters: "/ASSOC"; StatusMsg: "{cm:AssocingFileExtension,Inno Setup,.iss}"; Tasks: fileassoc
 Filename: "{app}\Compil32.exe"; WorkingDir: "{app}"; Description: "{cm:LaunchProgram,Inno Setup}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
+; The /UNASSOC line will be automatically skipped on portable mode, because of Uninstallable being set to no
 Filename: "{app}\Compil32.exe"; Parameters: "/UNASSOC"; RunOnceId: "RemoveISSAssoc"
-
-[Code]
-function PortableCheck: Boolean;
-begin
-  Result := ExpandConstant('{param:portable|0}') = '1';
-end;

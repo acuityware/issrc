@@ -2,7 +2,7 @@ unit DebugStruct;
 
 {
   Inno Setup
-  Copyright (C) 1997-2019 Jordan Russell
+  Copyright (C) 1997-2020 Jordan Russell
   Portions by Martijn Laan
   For conditions of distribution and use, see LICENSE.TXT.
 
@@ -23,12 +23,14 @@ const
   WM_Debugger_Exception = WM_USER + $704;
   WM_Debugger_SetForegroundWindow = WM_USER + $705;
   WM_Debugger_QueryVersion = WM_USER + $706;
+  WM_Debugger_CallStackCount = WM_USER + $707;
   { Debug client -> debugger WM_COPYDATA messages }
   CD_Debugger_ReplyW = $700;
   CD_Debugger_ExceptionW = $701;
   CD_Debugger_UninstExeW = $702;
   CD_Debugger_LogMessageW = $703;
   CD_Debugger_TempDirW = $704;
+  CD_Debugger_CallStackW = $705;
 
   { Debugger -> debug client messages }
   WM_DebugClient_Detach = WM_USER + $800;
@@ -61,7 +63,7 @@ const
 
 const
   DebugInfoHeaderID = $64787369;
-  DebugInfoHeaderVersion = 4;
+  DebugInfoHeaderVersion = 5;
 
 type
   PDebugInfoHeader = ^TDebugInfoHeader;
@@ -74,23 +76,25 @@ type
     CompiledCodeDebugInfoLength: Integer;
   end;
 
-  { TDebugEntrys associate section entries with line numbers }
+  { TDebugEntrys associate section entries with files and line numbers }
   TDebugEntryKind = (deDir, deFile, deIcon, deIni, deRegistry, deInstallDelete,
     deUninstallDelete, deRun, deUninstallRun, deCodeLine);
   PDebugEntry = ^TDebugEntry;
   TDebugEntry = packed record
-    LineNumber: Integer;
-    Kind: Integer;  { TDebugEntryKind }
+    FileIndex: Integer;  { -1: Main script, >=0: Include file index }
+    LineNumber: Integer; { Starts at 1 - decreased by one by the Compiler IDE on receive }
+    Kind: Integer;       { TDebugEntryKind }
     Index: Integer;
+    StepOutMarker: Boolean;
   end;
 
   { TVariableDebugEntrys associate [Code] section variable references with line
     numbers & column positions }
   PVariableDebugEntry = ^TVariableDebugEntry;
   TVariableDebugEntry = packed record
-    LineNumber, Col: Integer;
-    Param1, Param2, Param3: Integer;
-    Param4: array [0..127] of AnsiChar;
+    FileIndex, LineNumber, Col: Integer;   { Used by the Compiler IDE - also see TDebugEntry }
+    Param1, Param2, Param3: Integer;       { Used by Setup }
+    Param4: array [0..127] of AnsiChar;    { Used by Setup }
   end;
 
 function GetThreadTopWindow: HWND;

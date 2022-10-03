@@ -1,8 +1,8 @@
 Inno Setup
 ==========
 
-Copyright (C) 1997-2019 Jordan Russell. All rights reserved.  
-Portions Copyright (C) 2000-2019 Martijn Laan. All rights reserved.  
+Copyright (C) 1997-2022 Jordan Russell. All rights reserved.  
+Portions Copyright (C) 2000-2022 Martijn Laan. All rights reserved.  
 For conditions of distribution and use, see LICENSE.TXT.
 
 Source code README
@@ -23,7 +23,7 @@ Getting Started
 
     If you don't have the Git client (`git`), get it from:
 
-    http://git-scm.com/
+    https://git-scm.com/
 
     To update your sources from the command line do:
     ```
@@ -38,7 +38,7 @@ Getting Started
 
 2. **Install Embarcadero Delphi**
 
-   We compile all of Inno Setup's projects under Delphi 10.2 Tokyo Release 2.
+   We compile all of Inno Setup's projects under Delphi 10.3.3 Rio.
 
    If you do not have access to this version of Delphi, you should be
    able to compile the projects on later versions, however complete
@@ -50,38 +50,29 @@ Getting Started
    See https://www.embarcadero.com/products/delphi/starter/free-download
 
 
-3. **Install Microsoft MSXML**
-
-   Install Microsoft MSXML 4.0 SP2 if you haven't already done so.
-   See http://www.microsoft.com/en-us/download/details.aspx?id=19662
-
-   If you are not sure whether you have MSXML 4.0 SP2 already, check for a
-   file named msxml4.dll in your Windows System directory with a version number
-   of 4.20.9818.0 (or later).
-
-   Note: Microsoft MSXML is only needed to be able to compile the help files.
-
-
-4. **Install Microsoft HTML Help Workshop**
+3. **Install Microsoft HTML Help Workshop**
 
    Install Microsoft HTML Help Workshop if you haven't already done so.
-   See http://www.microsoft.com/en-us/download/details.aspx?id=21138
+   See https://docs.microsoft.com/en-us/previous-versions/windows/desktop/htmlhelp/microsoft-html-help-downloads and 
+   http://web.archive.org/web/20160201063255/http://download.microsoft.com/download/0/A/9/0A939EF6-E31C-430F-A3DF-DFAE7960D564/htmlhelp.exe
 
    Note: Microsoft HTML Help Workshop is only needed to be able to compile the
    help files.
 
 
-5. **Build Inno Setup**
+4. **Build Inno Setup**
 
    To build all files run **build.bat** and follow the instructions.
 
    To just compile Inno Setup run **compile.bat** and follow the instructions.
 
    To just compile the Inno Setup help file and its web version run
-   **ISHelp\compile.bat** and follow the instructions.
+   **ISHelp\ISHelpGen\compile.bat** and **ISHelp\compile.bat** and follow the
+   instructions.
 
    To just compile the Inno Setup Preprocessor help file and its web version run
-   **Projects\Ispp\Help\compile.bat** and follow the instructions.
+   **ISHelp\ISHelpGen\compile.bat** and **Projects\Ispp\Help\compile.bat** and
+   follow the instructions.
 
 
 Component Installation
@@ -106,6 +97,9 @@ additionally install the following components.
 
 - DropListBox
 - NewTabSet
+
+The Components directory contains a Components project which you can use to
+install all these components.
 
 If you only want to edit code, then you may skip installation of the
 components, and choose "Cancel" if the Delphi IDE tells you a class can't
@@ -137,7 +131,7 @@ performs all (un)installation-related tasks.
 Setup program into the user's TEMP directory and runs it from there. It also
 displays the "This will install..." and /HELP message boxes.
 
-**ISPP\ISPP** - This is a DLL implementing Inno Setup's preprocessor interface
+**ISPP\ISPP** - This is a DLL implementing Inno Setup's preprocessor interface.
 
 How do the projects link together?
 
@@ -165,7 +159,7 @@ Source code tips
   ``OutputBaseFilename=setup`` in your script, and copy the resulting setup-*.bin
   files to the source code directory. This way you can simulate an actual
   installation while running under the Delphi debugger.
-
+  
 - All of the forms in the Setup project, with the exception of Main.dfm, have
   Scaled set to False. This is because they dynamically scale themselves at
   run-time by calling a function named InitializeFont.
@@ -176,13 +170,21 @@ Source code tips
   data block in SETUP.EXE so it knows it's in "single EXE" form.
 
 - For compiler debugging purposes define ``STATICCOMPILER`` in CompForm.pas
-  and ``STATICPREPROC`` in Compile.pas.
+  and for preprocessor debugging also ``STATICPREPROC`` in Compile.pas.
+
+- To debug the uninstaller first run Setup.exe to completion with the
+  ``/DETACHEDMSG`` command line parameter set. Afterwards copy uninst000.dat and
+  uninst000.msg as setup.dat and setup.msg to the Projects directory in your
+  issrc path. Then open the Setup project and set the command line parameters to
+  ``/UNINSTMODE "/SECONDPHASE=<your issrc path\Projects\Setup.exe"`` and start
+  debugging. Note: each time setup.dat and setup.msg will be deleted if you
+  allow the uninstaller to complete so make sure to keep copies.
 
 
 Precompiled executables and libraries
 -------------------------------------
 
-The source code contains several precompiled executables and libraries:
+The source code contains several precompiled and signed executables and libraries:
 
 **Files\isbunzip.dll**, **Files\isbzip.dll** - Compiled by Visual Studio 2005
 from the bzlib directory in the Iscompress repository.
@@ -196,10 +198,6 @@ by Visual Studio 2005 from the [Projects\Lzma2\Encoder] directory.
 **Files\isscint.dll** - Compiled by Visual Studio 2005 from Scintilla 2.22 source
 code with scintilla-2.22-patch.txt applied.
 
-**Projects\\_shfolder.res** - shfolder.dll from a fresh install of IE 5.5 SP2 on
-NT 4.0 stored in a compiled resource file. Note: this file is normally not
-actually used by Setup.
-
 **Projects\Helper\x64\Release\Helper.exe**, **Projects\HelperEXEs.res** -
 Compiled by Visual Studio 2005 from the [Projects\Helper] directory and then
 stored in a compiled resource file.
@@ -208,8 +206,6 @@ stored in a compiled resource file.
 
 **Projects\Lzma2\Decoder\ISLzmaDec.obj**, **Projects\Lzma2\Decoder\ISLzma2Dec.obj** -
 See [Projects\Lzma2\Decoder\compiling.txt].
-
-**ISHelp\ISHelpGen\ISHelpGen.exe** - See [ISHelp\ISHelpGen\compile.bat].
 
 **Examples\MyProg.exe**, **Examples\MyProg-x64.exe** - Compiled by Visual Studio
 2005 from the [Examples\MyProg] directory.
@@ -224,6 +220,75 @@ Inno Setup-specific editing guidelines for the help files
   surround it by `<tt></tt>` so that it's displayed in the Courier New font. This is
   a convention used throughout the help file. Example: `<tt>MinVersion</tt>`
 
+Setting up Continuous Integration
+---------------------------------
+
+Delphi is not offered for download via a public link, and while there is a
+free-of-charge community version, its license terms forbid sharing it with others, or
+even let other developers (outside your direct teammates) use it. However, what _is_
+allowed is to copy the files (or a subset thereof) to another machine for the specific
+purpose of supporting unattended builds.
+
+Inno Setup's source code includes a GitHub workflow that performs such unattended
+builds upon `push` events, it requires some setting up, though.
+
+Note: The following instructions assume that you have a correctly-licensed version
+of Delphi installed into `C:\Program Files (x86)\Embarcadero\Studio\20.0`.
+
+To generate the (encrypted) `.zip` file containing the files needed to build
+Inno Setup, use [7-Zip](https://www.7-zip.org/):
+
+```
+cd C:\Program Files (x86)\Embarcadero\Studio\20.0
+"C:\Program Files\7-Zip\7z.exe" a -mx9 -mem=AES256 -p"<password>" ^
+	%USERPROFILE%\issrc-build-env.zip ^
+	bin\dcc32.exe bin\rlink32.dll bin\lnk*.dll ^
+	lib/win32/release/Sys*.dcu lib/win32/release/*.res ^
+	lib/win32/release/System.*.dcu lib/win32/release/System.Generics.*.dcu ^
+	lib/win32/release/System.Internal.*.dcu lib/win32/release/System.Net.*.dcu ^
+	lib/win32/release/System.Net.HttpClient.*.dcu lib/win32/release/System.Win.*.dcu ^
+	lib/win32/release/Vcl.*.dcu lib/win32/release/Vcl.Imaging.*.dcu ^
+	lib/win32/release/Winapi.*.dcu
+```
+
+Then, upload this somewhere public, e.g. by attaching it to a comment in a
+GitHub issue. After that, add this URL as a new repository
+[secret](https://docs.github.com/en/actions/security-guides/encrypted-secrets)
+(at https://github.com/YOUR-USER-NAME/issrc/settings/secrets/actions), under the name
+`ISSRC_BUILD_ENV_ZIP_URL`, and the password as `ISSRC_BUILD_ENV_ZIP_PASSWORD`.
+
+Finally, indicate that your fork of the repository has those secrets, by adding the
+topic `has-issrc-build-env` (click the gear icon next to the "About" label at
+https://github.com/YOUR-USER-NAME/issrc to add the topic).
+
+Once that's done, you're set! The next time you push a branch to your fork, the
+workflow will be triggered automatically.
+
+### Setting up code-signing with Continuous Integration
+
+Inno Setup's official releases ship with executable files that are
+[code-signed](https://en.wikipedia.org/wiki/Code_signing), to allow users to
+verify that these files come from a trusted source.
+
+If you have a code-signing certificate, you can use that in the Continuous
+Integration to produce artifacts that are code-signed, too, as long as the
+certificate does not require any local-only security factor such as a USB
+security key. To use the certificate, you first have to add the [repository
+secret](https://docs.github.com/en/actions/security-guides/encrypted-secrets#creating-encrypted-secrets-for-a-repository)
+`CODESIGN_P12`, using as value the base64-encoded file contents of the
+certificate's `.p12` file (obtain this value e.g. by running `base64 -w 0
+<my-certificate.p12`). Then, add the corresponding certificate password as
+repository secret named `CODESIGN_PASS`.
+
+Once these two repository secrets are set, the Continuous Integration will
+automatically pick them up and code-sign the generated executable files.
+
+Note: These repository secrets are only _used_ in the Continuous Integration,
+and will _not_ be included in the build artifacts. Meaning: You do not have to
+worry that the InnoSetup compiler that is produced by the Continuous
+Integration will automatically use your code-signing certificate
+_on its own_ to produce code-signed installers.
+
 <!-- Link references -->
 [CONTRIBUTING.md]: <CONTRIBUTING.md>
 [Projects\Lzma2\Encoder]: <Projects/Lzma2/Encoder>
@@ -231,4 +296,3 @@ Inno Setup-specific editing guidelines for the help files
 [Examples\MyProg]: <Examples/MyProg>
 [Projects\LzmaDecode\compiling.txt]: <Projects/LzmaDecode/compiling.txt>
 [Projects\Lzma2\Decoder\compiling.txt]: <Projects/Lzma2/Decoder/compiling.txt>
-[ISHelp\ISHelpGen\compile.bat]: <ISHelp/ISHelpGen/compile.bat>
